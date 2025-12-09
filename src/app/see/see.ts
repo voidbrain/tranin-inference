@@ -49,6 +49,9 @@ export class See implements AfterViewInit, OnDestroy {
   showStaticImage = signal(false);
   capturedImage = signal('');
 
+  // Tab navigation
+  activeTab = signal('detect');
+
   // Available tags for quick selection
   availableTags = signal([
     'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
@@ -66,6 +69,22 @@ export class See implements AfterViewInit, OnDestroy {
     'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
     'scissors', 'teddy bear', 'hair drier', 'toothbrush'
   ]);
+
+  // Training Queue functionality (merged from TrainingQueue component)
+  trainingStatus = signal<any>(null);
+  isTraining = signal(false);
+  trainingError = signal<string | null>(null);
+  trainingSuccess = signal<string | null>(null);
+
+  // Training parameters
+  epochs = signal(10);
+  batch_size = signal(16);
+  val_split = signal(0.2);
+  learning_rate = signal(0.001);
+  use_lora = signal(false);
+
+  // Training Logs functionality (merged from TrainingLogs component)
+  trainingLogs = signal<any[]>([]);
 
   // Box selection/dragging
   selectedBoxForDrag = signal<Detection | null>(null);
@@ -535,5 +554,120 @@ export class See implements AfterViewInit, OnDestroy {
     ctx.strokeStyle = '#FF6B35';
     ctx.lineWidth = 3;
     ctx.strokeRect(box.x - 2, box.y - 2, box.width + 4, box.height + 4);
+  }
+
+  // ===== TRAINING QUEUE FUNCTIONALITY (Merged from TrainingQueue) =====
+
+  async ngOnInit() {
+    // Load training status on component init
+    await this.loadTrainingStatus();
+    await this.loadTrainingLogs();
+  }
+
+  async loadTrainingStatus() {
+    try {
+      const response: any = await this.http.get(`${this.backendUrl}/training-queue-status`).toPromise();
+      this.trainingStatus.set(response);
+    } catch (error) {
+      console.error('Failed to load training queue status:', error);
+      this.trainingStatus.set({
+        images_waiting: 0,
+        training_sessions: 0,
+        ready_for_training: false,
+        last_training_time: null,
+        current_model: "YOLOv8n (Base)",
+        processed_images: 0,
+        total_images_annotated: 0
+      });
+    }
+  }
+
+  async resetModel() {
+    try {
+      this.trainingError.set(null);
+      this.trainingSuccess.set(null);
+
+      const response = await this.http.post(`${this.backendUrl}/reset-model`, {}).toPromise();
+      console.log('Model reset:', response);
+
+      this.trainingSuccess.set("Model reset to base YOLOv8n successfully!");
+      await this.loadTrainingStatus();
+
+    } catch (error: any) {
+      console.error('Failed to reset model:', error);
+      this.trainingError.set(`Failed to reset model: ${error.message}`);
+    }
+  }
+
+  async startTraining() {
+    if (!this.trainingStatus()?.ready_for_training) {
+      this.trainingError.set("No images ready for training");
+      return;
+    }
+
+    this.isTraining.set(true);
+    this.trainingError.set(null);
+    this.trainingSuccess.set(null);
+
+    try {
+      const trainingRequest = {
+        epochs: this.epochs(),
+        batch_size: this.batch_size(),
+        val_split: this.val_split(),
+        use_lora: this.use_lora(),
+        learning_rate: this.learning_rate()
+      };
+
+      const response = await this.http.post(`${this.backendUrl}/train`, trainingRequest).toPromise();
+      console.log('Training started:', response);
+
+      this.trainingSuccess.set("Training started successfully! Check training logs for progress.");
+      await this.loadTrainingStatus();
+      await this.loadTrainingLogs();
+
+    } catch (error: any) {
+      console.error('Failed to start training:', error);
+      this.trainingError.set(`Failed to start training: ${error.message}`);
+    } finally {
+      this.isTraining.set(false);
+    }
+  }
+
+  canStartTraining = () => this.trainingStatus()?.ready_for_training && !this.isTraining();
+  hasError = () => this.trainingError() !== null;
+  hasSuccess = () => this.trainingSuccess() !== null;
+
+  // ===== TRAINING LOGS FUNCTIONALITY (Merged from TrainingLogs) =====
+
+  async loadTrainingLogs() {
+    try {
+      const response: any = await this.http.get(`${this.backendUrl}/training-logs`).toPromise();
+      this.trainingLogs.set(response.logs || []);
+    } catch (error) {
+      console.error('Failed to load training logs:', error);
+      this.trainingLogs.set([]);
+    }
+  }
+
+  formatDateTime(timestamp: string | null): string {
+    if (!timestamp) return 'Never';
+
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch (error) {
+      return timestamp;
+    }
+  }
+
+  trackByLog(index: number, item: any): any {
+    return item.id || index;
   }
 }

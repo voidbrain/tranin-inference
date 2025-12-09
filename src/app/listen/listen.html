@@ -1,25 +1,115 @@
 <div class="listen-container">
-  <h2>Speech to Text (Whisper Tiny)</h2>
+  <h2>🎤 Speech Recognition Studio</h2>
 
+  <!-- Language Selection -->
   <div class="language-selection">
-    <label for="lang-select">Language:</label>
-    <select id="lang-select" [(ngModel)]="selectedLanguage">
-      <option value="en">English</option>
-      <option value="it">Italian</option>
-    </select>
+    <h3>🌐 Language Selection:</h3>
+    <div class="radio-group">
+      <label class="radio-option">
+        <input type="radio" name="language" value="en" [(ngModel)]="selectedLanguage">
+        <span>🇺🇸 English</span>
+      </label>
+      <label class="radio-option">
+        <input type="radio" name="language" value="it" [(ngModel)]="selectedLanguage">
+        <span>🇮🇹 Italian</span>
+      </label>
+    </div>
   </div>
 
-  <div class="control-buttons">
-    <button (click)="startRecording()" [disabled]="isRecording">Start Recording</button>
-    <button (click)="stopRecording()" [disabled]="!isRecording">Stop Recording</button>
+  <!-- Recording Controls -->
+  <div class="recording-section">
+    <h3>🎙️ Audio Recording</h3>
+
+    <div class="control-buttons">
+      <button (click)="startRecording()" [disabled]="isRecording" class="record-btn">
+        <span *ngIf="!isRecording">▶️ Start</span>
+        <span *ngIf="isRecording">⏺️ Recording...</span>
+      </button>
+      <button (click)="stopRecording()" [disabled]="!isRecording" class="stop-btn">
+        ⏹️ Stop
+      </button>
+      <button (click)="resetRecording()" class="reset-btn">
+        🔄 Reset
+      </button>
+    </div>
+
+    <div class="audio-display">
+      <div *ngIf="audioBlob" class="audio-info">
+        <strong>Audio Ready</strong> ({{ audioDuration || '0' }} seconds, {{ audioSize || '0' }} MB)
+      </div>
+      <div *ngIf="!audioBlob" class="audio-info">
+        No audio recorded
+      </div>
+    </div>
   </div>
 
-  <div class="transcript">
-    <h3>Transcript:</h3>
-    <div class="transcript-text">{{ transcript }}</div>
+  <!-- Transcription Results -->
+  <div class="transcription-section">
+    <h3>📝 Transcription Result:</h3>
+    <div class="transcription-controls">
+      <button (click)="transcribeAudio()" [disabled]="!audioBlob || isTranscribing" class="transcribe-btn">
+        <span *ngIf="!isTranscribing">🎯 Transcribe</span>
+        <span *ngIf="isTranscribing">⏳ Transcribing...</span>
+      </button>
+    </div>
+
+    <div class="transcript-input">
+      <textarea [(ngModel)]="transcript" placeholder="Transcription result will appear here..." readonly></textarea>
+    </div>
   </div>
 
-  <div class="status">
-    <span>Status: {{ status }}</span>
+  <!-- Training Data Upload -->
+  <div class="training-section">
+    <h3>🚀 Speech Recognition Training</h3>
+    <p>Upload your recorded audio for LoRA fine-tuning the Whisper model.</p>
+
+    <div class="training-controls">
+      <button (click)="uploadForTraining()" [disabled]="!audioBlob || isUploading" class="upload-btn">
+        <span *ngIf="!isUploading">⬆️ Upload for Training</span>
+        <span *ngIf="isUploading">⏳ Uploading...</span>
+      </button>
+
+      <button (click)="startLoraTraining()" [disabled]="trainingDataCount === 0 || isTraining" class="train-btn">
+        <span *ngIf="!isTraining">🎯 Start LoRA Training</span>
+        <span *ngIf="isTraining">⏳ Training in Progress...</span>
+      </button>
+
+      <button (click)="resetTrainingData()" [disabled]="trainingDataCount === 0" class="reset-training-btn">
+        🗑️ Clear Training Data ({{ trainingDataCount }} items)
+      </button>
+    </div>
+
+    <div class="training-info">
+      <p><strong>Training Status:</strong> {{
+        trainingDataCount === 0 ? 'No training data uploaded yet' :
+        trainingDataCount > 0 ? `Ready for training (${trainingDataCount} audio samples)` :
+        'Ready'
+      }}</p>
+      <p><small>Upload multiple audio recordings to create a speech recognition training dataset. Then start LoRA fine-tuning to improve Whisper's accuracy for your voice and use case.</small></p>
+    </div>
+  </div>
+
+  <!-- Status Display -->
+  <div class="status-section">
+    <div class="status-card">
+      <h4>📊 System Status</h4>
+      <div class="status-details">
+        <div class="status-item">
+          <strong>Whisper Model:</strong> {{ whisperStatus }}
+        </div>
+        <div class="status-item">
+          <strong>Language:</strong> {{ selectedLanguage === 'en' ? 'English' : 'Italian' }}
+        </div>
+        <div class="status-item">
+          <strong>Status:</strong> {{ status }}
+        </div>
+      </div>
+    </div>
+
+    <div class="message-display">
+      <div *ngIf="lastMessage" class="message" [ngClass]="{'success': lastMessageType === 'success', 'error': lastMessageType === 'error'}">
+        {{ lastMessage }}
+      </div>
+    </div>
   </div>
 </div>

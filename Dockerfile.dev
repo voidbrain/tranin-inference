@@ -11,8 +11,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Expose port
-EXPOSE 422
+# Expose port (inside container port that matches docker-compose mapping)
+EXPOSE 4223
 
-# Start development server
-CMD ["npm", "run", "start", "--", "--host", "0.0.0.0", "--port", "4223", "--poll=500", "--hmr"]
+# Start development server on port 4223 inside container (maps to host port 4223)
+CMD ["npx", "ng", "serve", "--host", "0.0.0.0", "--port", "4223", "--poll", "500", "--hmr"]
