@@ -1,0 +1,110 @@
+<div class="see-container">
+  <h2>Object Detection (YOLO)</h2>
+
+  <div class="camera-section">
+    <button (click)="startCamera()" [disabled]="isCameraActive()">Start Camera</button>
+    <button (click)="stopCamera()" [disabled]="!isCameraActive()">Stop Camera</button>
+  </div>
+
+  <div class="live-view">
+    <!-- Live video - hidden when detecting -->
+    <video #videoElement
+           [muted]="true"
+           autoplay
+           playsinline
+           [class.detecting]="showStaticImage()"></video>
+
+    <!-- Static captured image - shown when video is paused -->
+    <img #staticImageElement
+         [src]="capturedImage()"
+         [class.detecting]="showStaticImage()"
+         class="captured-image"
+         alt="Captured frame">
+
+    <!-- Bounding box canvas (always visible) -->
+    <canvas #canvasElement
+            [width]="canvasWidth()"
+            [height]="canvasHeight()"
+            [class.active]="isCorrectionMode()"
+            class="overlay-canvas"
+            (mousedown)="onMouseDown($event)"
+            (mousemove)="onMouseMove($event)"
+            (mouseup)="onMouseUp($event)"></canvas>
+  </div>
+
+  <div class="detection-controls">
+    <button (click)="detectObjects()" [disabled]="!isCameraActive() || isDetecting()">Detect Objects</button>
+  </div>
+
+  <div class="detections">
+    <h3>Detections:</h3>
+    <div class="detections-list" *ngIf="detections().length > 0">
+      <div class="detection-item" *ngFor="let detection of detections(); trackBy: trackByIndex">
+        <span class="detection-label">{{ detection.label }}</span>
+        <span class="detection-confidence">({{ detection.confidence }}%)</span>
+      </div>
+    </div>
+    <div class="no-detections" *ngIf="detections().length === 0 && !isLoading()">
+      No detections
+    </div>
+  </div>
+
+  <div class="correction-section" *ngIf="detections().length > 0">
+    <h3>Corrections</h3>
+    <button (click)="enterCorrectionMode()" [disabled]="isCorrectionMode()">Edit Boxes</button>
+    <button (click)="sendToBackend()" [disabled]="!canSendToBackend()">Send to Backend</button>
+  </div>
+
+  <div class="correction-controls" *ngIf="isCorrectionMode()">
+    <p><strong>Correction Mode:</strong></p>
+    <ul>
+      <li>Click on green boxes to <span style="color: red">remove</span> them</li>
+      <li>Click and drag green boxes to <span style="color: blue">move</span> them</li>
+      <li>Select a label below, then click "Add Box" and draw on image (can add multiple)</li>
+      <li>Boxes will turn green when completed</li>
+    </ul>
+
+    <!-- Predefined tags -->
+    <div class="tag-section">
+      <h4>Select Label:</h4>
+      <div class="tag-buttons">
+        <button *ngFor="let tag of availableTags()"
+                (click)="selectTag(tag)"
+                [class.selected]="newBoxLabel() === tag"
+                class="tag-btn">
+          {{ tag }}
+        </button>
+      </div>
+    </div>
+
+    <div class="add-box-input">
+      <input type="text"
+             placeholder="Or enter custom label"
+             [value]="newBoxLabel()"
+             (input)="newBoxLabel.set($event.target.value)" />
+
+      <div class="add-box-buttons">
+        <button (click)="toggleAddBoxMode()"
+                [class.active]="addBoxMode()">
+          {{ addBoxMode() ? 'Stop Adding' : 'Add Box' }}
+        </button>
+        <button (click)="clearAllBoxes()" class="clear-btn" *ngIf="detections().length > 0">
+          Clear All
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span>Status: {{ status() }}</span>
+    <div class="debug-info" style="font-size: 12px; color: #666; margin-top: 5px;">
+      Camera: {{ isCameraActive() ? '✓' : '✗' }} |
+      Detecting: {{ isDetecting() ? '✓' : '✗' }} |
+      Loading: {{ isLoading() ? '✓' : '✗' }} |
+      Detections: {{ detections().length }} |<br>
+      Static Image: {{ showStaticImage() ? '✓' : '✗' }} |
+      Image Data: {{ capturedImage().substring(0, 50) + '...' }}<br>
+      Current Labels: {{ getLabelsList() }}
+    </div>
+  </div>
+</div>

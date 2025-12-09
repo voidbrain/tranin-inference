@@ -1,0 +1,25 @@
+<div class="listen-container">
+  <h2>Speech to Text (Whisper Tiny)</h2>
+
+  <div class="language-selection">
+    <label for="lang-select">Language:</label>
+    <select id="lang-select" [(ngModel)]="selectedLanguage">
+      <option value="en">English</option>
+      <option value="it">Italian</option>
+    </select>
+  </div>
+
+  <div class="control-buttons">
+    <button (click)="startRecording()" [disabled]="isRecording">Start Recording</button>
+    <button (click)="stopRecording()" [disabled]="!isRecording">Stop Recording</button>
+  </div>
+
+  <div class="transcript">
+    <h3>Transcript:</h3>
+    <div class="transcript-text">{{ transcript }}</div>
+  </div>
+
+  <div class="status">
+    <span>Status: {{ status }}</span>
+  </div>
+</div>

@@ -1,0 +1,56 @@
+<div class="logs-container">
+  <h2>Training Logs</h2>
+
+  <button (click)="refreshLogs()" [disabled]="isLoading">Refresh Logs</button>
+
+  <div class="logs-section">
+    <h3>Training History</h3>
+    <div class="logs-table" *ngIf="logs.length > 0">
+      <table>
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Epoch</th>
+            <th>Accuracy</th>
+            <th>Loss</th>
+            <th>Val Accuracy</th>
+            <th>Val Loss</th>
+            <th>Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let log of logs">
+            <td>{{ log.timestamp | date:'medium' }}</td>
+            <td>{{ log.epoch || '-' }}</td>
+            <td>{{ log.accuracy ? (log.accuracy * 100 | number:'1.1-1') + '%' : '-' }}</td>
+            <td>{{ log.loss ? (log.loss | number:'1.4-4') : '-' }}</td>
+            <td>{{ log.val_accuracy ? (log.val_accuracy * 100 | number:'1.1-1') + '%' : '-' }}</td>
+            <td>{{ log.val_loss ? (log.val_loss | number:'1.4-4') : '-' }}</td>
+            <td>{{ getLogType(log.metadata) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="no-logs" *ngIf="logs.length === 0 && !isLoading">
+      No training logs available
+    </div>
+  </div>
+
+  <div class="charts-section" *ngIf="chartData.length > 0">
+    <h3>Training Progress</h3>
+    <div class="charts">
+      <div class="chart">
+        <h4>Accuracy Over Time</h4>
+        <div class="chart-placeholder">Chart visualization would go here</div>
+      </div>
+      <div class="chart">
+        <h4>Loss Over Time</h4>
+        <div class="chart-placeholder">Chart visualization would go here</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="status">
+    <span>Status: {{ status }}</span>
+  </div>
+</div>
