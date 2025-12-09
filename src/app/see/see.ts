@@ -86,6 +86,9 @@ export class See implements AfterViewInit, OnDestroy {
   // Training Logs functionality (merged from TrainingLogs component)
   trainingLogs = signal<any[]>([]);
 
+  // Real-time training status polling
+  trainingStatusPollingInterval = signal<any>(null);
+
   // Box selection/dragging
   selectedBoxForDrag = signal<Detection | null>(null);
   isDraggingBox = signal(false);
@@ -109,6 +112,7 @@ export class See implements AfterViewInit, OnDestroy {
 
   ngOnDestroy() {
     this.stopCamera();
+    this.stopTrainingStatusPolling();
   }
 
   private async loadYOLOModel() {
@@ -622,6 +626,10 @@ export class See implements AfterViewInit, OnDestroy {
       console.log('Training started:', response);
 
       this.trainingSuccess.set("Training started successfully! Check training logs for progress.");
+
+      // Start polling for training status updates
+      this.startTrainingStatusPolling();
+
       await this.loadTrainingStatus();
       await this.loadTrainingLogs();
 
@@ -669,5 +677,48 @@ export class See implements AfterViewInit, OnDestroy {
 
   trackByLog(index: number, item: any): any {
     return item.id || index;
+  }
+
+  // ===== REAL-TIME TRAINING STATUS POLLING (Added) =====
+
+  private startTrainingStatusPolling() {
+    // Poll every 3 seconds for training status updates
+    this.trainingStatusPollingInterval.set(setInterval(async () => {
+      try {
+        const response: any = await this.http.get(`${this.backendUrl}/training-logs`).toPromise();
+        const logs = response.logs || [];
+        this.trainingLogs.set(logs);
+
+        // Check if training is completed by looking for completion message
+        const lastLog = logs[logs.length - 1];
+        if (lastLog && lastLog.metadata && lastLog.metadata.type === 'training_completed') {
+          this.stopTrainingStatusPolling();
+
+          // Check if there's a trained_*.pt file (indicating success)
+          await this.loadTrainingStatus();
+          const currentModelStatus = this.trainingStatus();
+          if (currentModelStatus?.current_model && currentModelStatus.current_model !== "YOLOv8n (Base)") {
+            this.trainingSuccess.set("YOLO training completed successfully!");
+            this.trainingError.set(null);
+          } else {
+            this.trainingSuccess.set("YOLO training completed - check model status");
+            this.trainingError.set(null);
+          }
+        } else if (lastLog && lastLog.metadata && lastLog.metadata.type === 'training_error') {
+          this.stopTrainingStatusPolling();
+          this.trainingError.set(`YOLO training failed: ${lastLog.metadata.error}`);
+          this.trainingSuccess.set(null);
+        }
+      } catch (error) {
+        console.error('Failed to poll training logs:', error);
+      }
+    }, 3000));
+  }
+
+  private stopTrainingStatusPolling() {
+    if (this.trainingStatusPollingInterval()) {
+      clearInterval(this.trainingStatusPollingInterval());
+      this.trainingStatusPollingInterval.set(null);
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -10,7 +10,7 @@ import { HttpClientModule } from '@angular/common/http';
   templateUrl: './listen.html',
   styleUrl: './listen.scss',
 })
-export class Listen implements OnInit {
+export class Listen implements OnInit, OnDestroy {
   private backendUrl = 'http://backend:8000';
 
   // Language and recording state
@@ -31,11 +31,19 @@ export class Listen implements OnInit {
   isTranscribing = false;
   isUploading = false;
   isTraining = false;
+
+  // Training status polling
+  trainingStatus = 'idle'; // idle, running, success, error
+  trainingProgress = 0;
+  trainingMessage = '';
+  trainingLogs: string[] = [];
+  trainingIntervalId: any = null;
   trainingDataCount = 0;
 
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
   private recordingStartTime: number = 0;
+  private stream: MediaStream | null = null;
 
   constructor(private http: HttpClient) {}
 
@@ -43,12 +51,32 @@ export class Listen implements OnInit {
     this.updateTrainingDataCount();
   }
 
+  ngOnDestroy() {
+    // Clean up media resources when component is destroyed
+    this.cleanupRecording();
+
+    // Stop training status polling
+    this.stopTrainingStatusPolling();
+  }
+
   async startRecording() {
     try {
-      this.status = 'Requesting microphone access...';
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Clean up any existing recording
+      await this.cleanupRecording();
 
-      this.mediaRecorder = new MediaRecorder(stream);
+      this.status = 'Requesting microphone access...';
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      this.mediaRecorder = new MediaRecorder(this.stream, {
+        mimeType: 'audio/webm;codecs=opus'
+      });
+
       this.audioChunks = [];
       this.recordingStartTime = Date.now();
 
@@ -60,51 +88,84 @@ export class Listen implements OnInit {
 
       this.mediaRecorder.onstop = () => {
         const duration = Math.round((Date.now() - this.recordingStartTime) / 1000);
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
         const size = (audioBlob.size / 1024 / 1024).toFixed(2); // MB
 
         this.audioBlob = audioBlob;
         this.audioDuration = duration.toString();
         this.audioSize = size;
+        this.isRecording = false;
 
         this.status = 'Audio recorded successfully';
         this.showMessage('Audio recorded successfully!', 'success');
 
-        // Stop all tracks
-        stream.getTracks().forEach(track => track.stop());
+        // Note: We don't stop the stream here to allow immediate restart
+        // Stream cleanup will happen on component destroy or next recording
       };
 
-      this.mediaRecorder.start();
+      this.mediaRecorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        this.status = 'Recording error occurred';
+        this.isRecording = false;
+        this.showMessage('Recording error occurred', 'error');
+      };
+
+      this.mediaRecorder.start(100); // Collect data every 100ms
       this.isRecording = true;
       this.status = 'Recording... (Click Stop when done)';
       this.clearMessages();
 
     } catch (error) {
       console.error('Recording error:', error);
-      this.status = 'Recording failed: ' + (error as Error).message;
-      this.showMessage('Failed to start recording', 'error');
+      this.status = 'Recording failed: Permission denied or no microphone access';
+      this.showMessage('Failed to start recording - check microphone permissions', 'error');
     }
   }
 
   stopRecording() {
     if (this.mediaRecorder && this.isRecording) {
       this.mediaRecorder.stop();
-      this.isRecording = false;
+      // Don't set isRecording here - it will be set in onstop callback
     }
   }
 
-  resetRecording() {
+  async resetRecording() {
+    // Stop recording if in progress
     if (this.mediaRecorder && this.isRecording) {
       this.mediaRecorder.stop();
     }
 
+    // Clean up media resources
+    await this.cleanupRecording();
+
+    // Reset state
     this.audioBlob = null;
     this.audioDuration = '0';
     this.audioSize = '0';
-    this.isRecording = false;
     this.transcript = '';
     this.status = 'Recording reset';
     this.clearMessages();
+  }
+
+  private async cleanupRecording() {
+    // Stop all media tracks
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => {
+        track.stop();
+      });
+      this.stream = null;
+    }
+
+    // Clean up mediaRecorder
+    if (this.mediaRecorder) {
+      if (this.mediaRecorder.state === 'recording') {
+        this.mediaRecorder.stop();
+      }
+      this.mediaRecorder = null;
+    }
+
+    this.audioChunks = [];
+    this.isRecording = false;
   }
 
   async transcribeAudio() {
@@ -179,12 +240,53 @@ export class Listen implements OnInit {
       this.status = 'LoRA training started in background';
       this.showMessage('Whisper LoRA fine-tuning has started! Check logs for progress.', 'success');
 
+      // Start polling for training status
+      this.startTrainingStatusPolling();
+
     } catch (error: any) {
       console.error('Training start error:', error);
       this.status = 'Training start failed';
       this.showMessage('Failed to start training: ' + error.message, 'error');
     } finally {
       this.isTraining = false;
+    }
+  }
+
+  private startTrainingStatusPolling() {
+    // Poll every 2 seconds for training status updates
+    this.trainingIntervalId = setInterval(async () => {
+      try {
+        const response = await this.http.get(`${this.backendUrl}/whisper-training-status-details`).toPromise();
+        const status: any = response;
+
+        this.trainingStatus = status.status;
+        this.trainingProgress = status.progress;
+        this.trainingMessage = status.message;
+        this.trainingLogs = status.logs;
+
+        // Stop polling when training completes (success or error)
+        if (status.status === 'success' || status.status === 'error') {
+          this.stopTrainingStatusPolling();
+
+          if (status.status === 'success') {
+            this.showMessage('Whisper LoRA training completed successfully!', 'success');
+          } else {
+            this.showMessage(`Whisper LoRA training failed: ${status.message}`, 'error');
+          }
+
+          // Update training data count after completion
+          this.updateTrainingDataCount();
+        }
+      } catch (error) {
+        console.error('Failed to poll training status:', error);
+      }
+    }, 2000);
+  }
+
+  private stopTrainingStatusPolling() {
+    if (this.trainingIntervalId) {
+      clearInterval(this.trainingIntervalId);
+      this.trainingIntervalId = null;
     }
   }
 
