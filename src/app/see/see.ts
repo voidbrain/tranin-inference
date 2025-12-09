@@ -21,10 +21,11 @@ interface Detection {
   styleUrl: './see.scss',
 })
 export class See implements AfterViewInit, OnDestroy {
-  @ViewChild('videoElement', { static: true }) videoElement!: ElementRef<HTMLVideoElement>;
-  @ViewChild('canvasElement', { static: true }) canvasElement!: ElementRef<HTMLCanvasElement>;
+  @ViewChild('videoElement') videoElement!: ElementRef<HTMLVideoElement>;
+  @ViewChild('canvasElement') canvasElement!: ElementRef<HTMLCanvasElement>;
 
   // Convert to Angular Signals for reactive state
+  isComponentReady = signal(false);
   isCameraActive = signal(false);
   isDetecting = signal(false);
   isLoading = signal(false);
@@ -52,23 +53,26 @@ export class See implements AfterViewInit, OnDestroy {
   // Tab navigation
   activeTab = signal('detect');
 
-  // Available tags for quick selection
-  availableTags = signal([
-    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
-    'train', 'truck', 'boat', 'traffic light', 'fire hydrant',
-    'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog',
-    'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe',
-    'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
-    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
-    'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
-    'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
-    'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
-    'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
-    'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop',
-    'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
-    'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
-    'scissors', 'teddy bear', 'hair drier', 'toothbrush'
-  ]);
+  // Detection mode
+  detectionMode = signal<'digits' | 'colors'>('digits');
+
+  // Available tags for quick selection - now loaded from backend
+  availableTags = signal<string[]>([]);
+
+  // Method to load tags from backend based on detection mode
+  async loadAvailableTags() {
+    try {
+      const response = await this.http.get<any>(`http://backend:8000/tags/${this.detectionMode()}`).toPromise();
+      this.availableTags.set(response.tags);
+    } catch (error) {
+      console.warn('Failed to load tags from backend:', error);
+      // Fallback to hardcoded if backend unavailable
+      const fallbackTags = this.detectionMode() === 'digits'
+        ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+        : ['red', 'blue', 'green', 'yellow', 'orange', 'purple'];
+      this.availableTags.set(fallbackTags);
+    }
+  }
 
   // Training Queue functionality (merged from TrainingQueue component)
   trainingStatus = signal<any>(null);
@@ -82,6 +86,11 @@ export class See implements AfterViewInit, OnDestroy {
   val_split = signal(0.2);
   learning_rate = signal(0.001);
   use_lora = signal(false);
+
+  // Specialized LoRA training
+  trainingType = signal<'digits' | 'colors' | ''>('');
+  loraRank = signal(8);
+  loraLearningRate = signal(0.001);
 
   // Training Logs functionality (merged from TrainingLogs component)
   trainingLogs = signal<any[]>([]);
@@ -108,6 +117,7 @@ export class See implements AfterViewInit, OnDestroy {
   async ngAfterViewInit() {
     await this.loadYOLOModel();
     await this.loadAvailableTags();
+    this.isComponentReady.set(true);
   }
 
   ngOnDestroy() {
@@ -158,25 +168,16 @@ export class See implements AfterViewInit, OnDestroy {
     console.log('Offline YOLO model initialized');
   }
 
-  private async loadAvailableTags() {
-    try {
-      const response: any = await this.http.get(`${this.backendUrl}/available-tags`).toPromise();
-      this.availableTags.set(response.tags || []);
-      console.log('Loaded available tags:', response.tags?.length || 0, 'tags');
-    } catch (error) {
-      console.warn('Failed to load tags from backend, using fallback:', error);
-      // Fallback to hardcoded list if backend is not available
-      this.availableTags.set([
-        'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
-        'train', 'truck', 'boat', 'traffic light'
-      ]);
-    }
-  }
-
   async startCamera() {
     try {
       this.isLoading.set(true);
       this.status.set('Requesting camera access...');
+
+      if (!this.videoElement) {
+        this.status.set('Error: Video element not found');
+        this.isLoading.set(false);
+        return;
+      }
 
       this.stream = await navigator.mediaDevices.getUserMedia({
         video: { width: this.canvasWidth(), height: this.canvasHeight() }
@@ -226,7 +227,7 @@ export class See implements AfterViewInit, OnDestroy {
   }
 
   async detectObjects() {
-    if (!this.yoloPipeline || !this.isCameraActive()) return;
+    if (!this.yoloPipeline || !this.isCameraActive() || !this.videoElement) return;
 
     this.isDetecting.set(true);
     this.status.set('Capturing image and detecting objects...');
@@ -316,6 +317,11 @@ export class See implements AfterViewInit, OnDestroy {
       // Draw box
       ctx.strokeStyle = '#00FF00';
       ctx.lineWidth = 2;
+      if (this.detectionMode() === 'colors') {
+        ctx.setLineDash([5, 5]); // Dashed line for colors
+      } else {
+        ctx.setLineDash([]); // Solid line for digits
+      }
       ctx.strokeRect(detection.x, detection.y, detection.width, detection.height);
 
       // Draw label
@@ -326,9 +332,12 @@ export class See implements AfterViewInit, OnDestroy {
   }
 
   private clearCanvas() {
+    if (!this.canvasElement) return;
     const canvas = this.canvasElement.nativeElement;
     const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   }
 
   enterCorrectionMode() {
@@ -351,17 +360,142 @@ export class See implements AfterViewInit, OnDestroy {
       console.log('Backend response:', response);
       this.status.set('Data uploaded successfully. Training can now be initiated.');
 
+      // Refresh training status to show updated counts
+      await this.loadTrainingStatus();
+
     } catch (error) {
       console.error('Error sending to backend:', error);
       this.status.set('Failed to send data to backend: ' + (error as any).message);
     }
   }
 
+  async sendSpecializedToBackend(trainingType: 'digits' | 'colors') {
+    try {
+      const specializedData = {
+        training_type: trainingType,
+        imageData: this.getCurrentFrameData(),
+        detections: this.detections().map((d: Detection) => ({
+          label: d.label,
+          bbox: [d.x, d.y, d.x + d.width, d.y + d.height], // Convert to [x1,y1,x2,y2] format
+          confidence: d.confidence
+        }))
+      };
+
+      const response = await this.http.post(`${this.backendUrl}/upload-specialized-training-data`, specializedData).toPromise();
+      console.log(`Specialized ${trainingType} backend response:`, response);
+      this.status.set(`${trainingType.charAt(0).toUpperCase() + trainingType.slice(1)} training data uploaded successfully.`);
+
+      // Refresh specialized training counts
+      await this.loadSpecializedCount(trainingType);
+
+    } catch (error) {
+      console.error(`Error sending ${trainingType} to backend:`, error);
+      this.status.set(`Failed to send ${trainingType} data to backend: ${error}`);
+    }
+  }
+
+  async startSpecializedTraining(trainingType: 'digits' | 'colors') {
+    try {
+      const isReady = await this.checkSpecializedTrainingReady(trainingType);
+      if (!isReady) {
+        this.trainingError.set(`No ${trainingType} training data found. Upload training data first.`);
+        return;
+      }
+
+      this.isTraining.set(true);
+      this.trainingError.set(null);
+      this.trainingSuccess.set(null);
+
+      const loraRequest = {
+        training_type: trainingType,
+        epochs: 60, // LoRA training typically needs more epochs
+        lora_rank: this.loraRank(),
+        learning_rate: this.loraLearningRate()
+      };
+
+      const response = await this.http.post(`${this.backendUrl}/train-lora-specialized`, loraRequest).toPromise();
+      console.log(`LoRA training started for ${trainingType}:`, response);
+
+      this.trainingSuccess.set(`LoRA training started for ${trainingType}! Check training logs for progress.`);
+
+      // Start polling for specialized training status updates
+      this.startSpecializedTrainingPolling(trainingType);
+
+    } catch (error: any) {
+      console.error(`Failed to start specialized training for ${trainingType}:`, error);
+      this.trainingError.set(`Failed to start ${trainingType} training: ${error.message}`);
+    } finally {
+      this.isTraining.set(false);
+    }
+  }
+
+  async loadSpecializedCount(trainingType: 'digits' | 'colors') {
+    try {
+      const response: any = await this.http.get(`${this.backendUrl}/specialized-training-count/${trainingType}`).toPromise();
+      return response.count || 0;
+    } catch (error) {
+      console.error(`Failed to load ${trainingType} count:`, error);
+      return 0;
+    }
+  }
+
+  async loadLoraAdapter(trainingType: 'digits' | 'colors') {
+    try {
+      this.trainingError.set(null);
+      this.trainingSuccess.set(null);
+
+      const response = await this.http.post(`${this.backendUrl}/load-lora-adapter`, {
+        training_type: trainingType
+      }).toPromise();
+
+      console.log(`LoRA adapter loaded for ${trainingType}:`, response);
+      this.trainingSuccess.set(`LoRA adapter for ${trainingType} loaded successfully!`);
+      // LoRA adapter loaded successfully
+
+    } catch (error: any) {
+      console.error(`Failed to load LoRA adapter for ${trainingType}:`, error);
+      this.trainingError.set(`Failed to load ${trainingType} LoRA adapter: ${error.message}`);
+    }
+  }
+
+  private async checkSpecializedTrainingReady(trainingType: 'digits' | 'colors'): Promise<boolean> {
+    const count = await this.loadSpecializedCount(trainingType);
+    return count > 0;
+  }
+
+  private startSpecializedTrainingPolling(trainingType: 'digits' | 'colors') {
+    this.trainingStatusPollingInterval.set(setInterval(async () => {
+      try {
+        const response: any = await this.http.get(`${this.backendUrl}/training-logs`).toPromise();
+        const logs = response.logs || [];
+        this.trainingLogs.set(logs);
+
+        // Check if specialized training is completed
+        const lastLog = logs[logs.length - 1];
+        if (lastLog && lastLog.metadata &&
+            lastLog.metadata.type === 'training_completed' &&
+            lastLog.metadata.specialization === trainingType) {
+          this.stopTrainingStatusPolling();
+          this.trainingSuccess.set(`LoRA training for ${trainingType} completed successfully!`);
+          this.trainingError.set(null);
+        } else if (lastLog && lastLog.metadata &&
+                   lastLog.metadata.type === 'training_error' &&
+                   lastLog.metadata.specialization === trainingType) {
+          this.stopTrainingStatusPolling();
+          this.trainingError.set(`LoRA training for ${trainingType} failed: ${lastLog.metadata.error}`);
+          this.trainingSuccess.set(null);
+        }
+      } catch (error) {
+        console.error('Failed to poll specialized training logs:', error);
+      }
+    }, 3000));
+  }
+
   private getCurrentFrameData(): string {
     // Use the captured image data instead of trying to capture from video (which might not be streaming)
     if (this.capturedImage()) {
       return this.capturedImage(); // Return the already-captured frame
-    } else {
+    } else if (this.videoElement) {
       // Fallback: try to capture from video element (though it might fail after stream is stopped)
       const canvas = document.createElement('canvas');
       canvas.width = this.videoElement.nativeElement.videoWidth || this.canvasWidth();
@@ -369,6 +503,8 @@ export class See implements AfterViewInit, OnDestroy {
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(this.videoElement.nativeElement, 0, 0);
       return canvas.toDataURL('image/jpeg');
+    } else {
+      return '';
     }
   }
 
@@ -384,7 +520,7 @@ export class See implements AfterViewInit, OnDestroy {
   toggleAddBoxMode() {
     this.addBoxMode.set(!this.addBoxMode());
     if (this.addBoxMode()) {
-      this.newBoxLabel.set(this.newBoxLabel() || 'person'); // Default to person if no label
+      this.newBoxLabel.set(this.newBoxLabel() || this.availableTags()[0] || 'unknown'); // Default to first available tag
       this.status.set('Click and drag on image to add boxes (multiple allowed)');
     } else {
       this.drawingNewBox.set(false);
@@ -404,7 +540,7 @@ export class See implements AfterViewInit, OnDestroy {
 
   // Mouse event handlers for correction mode
   onMouseDown(event: MouseEvent) {
-    if (!this.isCorrectionMode()) return;
+    if (!this.isCorrectionMode() || !this.canvasElement) return;
 
     const rect = this.canvasElement.nativeElement.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -441,7 +577,7 @@ export class See implements AfterViewInit, OnDestroy {
   }
 
   onMouseMove(event: MouseEvent) {
-    if (this.isDraggingBox()) {
+    if (this.isDraggingBox() && this.canvasElement) {
       // Handle dragging existing box
       const rect = this.canvasElement.nativeElement.getBoundingClientRect();
       const x = event.clientX - rect.left;

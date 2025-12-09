@@ -21,8 +21,9 @@
     <h3>🎙️ Audio Recording</h3>
 
     <div class="control-buttons">
-      <button (click)="startRecording()" [disabled]="isRecording" class="record-btn">
-        <span *ngIf="!isRecording">▶️ Start</span>
+      <button (click)="startRecording()" [disabled]="isRecording || isStartingRecording" class="record-btn">
+        <span *ngIf="!isRecording && !isStartingRecording">▶️ Start</span>
+        <span *ngIf="isStartingRecording">⏳ Starting...</span>
         <span *ngIf="isRecording">⏺️ Recording...</span>
       </button>
       <button (click)="stopRecording()" [disabled]="!isRecording" class="stop-btn">

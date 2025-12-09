@@ -26,6 +26,7 @@ export class Listen implements OnInit, OnDestroy {
   audioBlob: Blob | null = null;
   audioDuration = '0';
   audioSize = '0';
+  isStartingRecording = false;
 
   // Processing states
   isTranscribing = false;
@@ -60,18 +61,31 @@ export class Listen implements OnInit, OnDestroy {
   }
 
   async startRecording() {
+    if (this.isStartingRecording) return;
+
+    this.isStartingRecording = true;
+
     try {
       // Clean up any existing recording
       await this.cleanupRecording();
 
       this.status = 'Requesting microphone access...';
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+
+      // Add timeout to prevent hanging if user doesn't respond to permission prompt
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Recording permission timeout')), 15000)
+      );
+
+      this.stream = await Promise.race([
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        }),
+        timeoutPromise
+      ]);
 
       this.mediaRecorder = new MediaRecorder(this.stream, {
         mimeType: 'audio/webm;codecs=opus'
@@ -95,6 +109,7 @@ export class Listen implements OnInit, OnDestroy {
         this.audioDuration = duration.toString();
         this.audioSize = size;
         this.isRecording = false;
+        this.isStartingRecording = false;
 
         this.status = 'Audio recorded successfully';
         this.showMessage('Audio recorded successfully!', 'success');
@@ -107,6 +122,7 @@ export class Listen implements OnInit, OnDestroy {
         console.error('MediaRecorder error:', event);
         this.status = 'Recording error occurred';
         this.isRecording = false;
+        this.isStartingRecording = false;
         this.showMessage('Recording error occurred', 'error');
       };
 
@@ -119,14 +135,57 @@ export class Listen implements OnInit, OnDestroy {
       console.error('Recording error:', error);
       this.status = 'Recording failed: Permission denied or no microphone access';
       this.showMessage('Failed to start recording - check microphone permissions', 'error');
+      this.isStartingRecording = false;
     }
   }
 
   stopRecording() {
     if (this.mediaRecorder && this.isRecording) {
       this.mediaRecorder.stop();
-      // Don't set isRecording here - it will be set in onstop callback
+
+      // Set a timeout to force stop if onstop callback doesn't fire
+      setTimeout(() => {
+        if (this.isRecording) {
+          console.warn('MediaRecorder onstop callback did not fire, forcing cleanup');
+          this.forceStopRecording();
+        }
+      }, 500);
+
+    } else if (this.isRecording) {
+      // If mediaRecorder is not available but recording is supposedly active,
+      // force cleanup
+      this.forceStopRecording();
     }
+  }
+
+  private forceStopRecording() {
+    console.warn('Forcing recording stop');
+    this.isRecording = false;
+    this.isStartingRecording = false;
+    this.status = 'Recording stopped manually';
+
+    // Stop the media stream to end recording
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+      this.stream = null;
+    }
+
+    // Save any accumulated chunks as audio blob
+    if (this.audioChunks.length > 0) {
+      const duration = Math.round((Date.now() - this.recordingStartTime) / 1000);
+      const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+      const size = (audioBlob.size / 1024 / 1024).toFixed(2);
+
+      this.audioBlob = audioBlob;
+      this.audioDuration = duration.toString();
+      this.audioSize = size;
+      this.status = 'Audio recorded successfully (forced stop)';
+      this.showMessage('Audio recorded successfully!', 'success');
+    } else {
+      this.status = 'Recording stopped (no audio data)';
+    }
+
+    this.cleanupRecording();
   }
 
   async resetRecording() {

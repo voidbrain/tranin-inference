@@ -22,8 +22,31 @@
 
   <!-- DETECTION TAB CONTENT -->
   <div class="tab-content" *ngIf="activeTab() === 'detect'">
+    <!-- Detection Mode Selector -->
+    <div class="detection-mode-section">
+      <h3>Detection Mode:</h3>
+      <div class="mode-buttons">
+        <label class="mode-option">
+          <input type="radio"
+                 name="detectionMode"
+                 value="digits"
+                 [(ngModel)]="detectionMode"
+                 (change)="loadAvailableTags()">
+          <span class="mode-label">🔢 Digits</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio"
+                 name="detectionMode"
+                 value="colors"
+                 [(ngModel)]="detectionMode"
+                 (change)="loadAvailableTags()">
+          <span class="mode-label">🎨 Colors (dashed boxes)</span>
+        </label>
+      </div>
+    </div>
+
     <div class="camera-section">
-      <button (click)="startCamera()" [disabled]="isCameraActive()">Start Camera</button>
+      <button (click)="startCamera()" [disabled]="!isComponentReady() || isCameraActive()">Start Camera</button>
       <button (click)="stopCamera()" [disabled]="!isCameraActive()">Stop Camera</button>
     </div>
 
@@ -193,7 +216,7 @@
 
     <!-- Training Controls -->
     <div class="training-controls-card" *ngIf="trainingStatus()?.ready_for_training">
-      <h3>🚀 Start Fine-Tuning</h3>
+      <h3>🚀 General Training</h3>
 
       <div class="training-params">
         <div class="param-group">
@@ -264,7 +287,7 @@
         <button (click)="startTraining()"
                 [disabled]="!canStartTraining()"
                 class="start-training-btn">
-          <span *ngIf="!isTraining()">🚀 Start Fine-Tuning</span>
+          <span *ngIf="!isTraining()">🚀 Start General Training</span>
           <span *ngIf="isTraining()">⏳ Training in Progress...</span>
         </button>
 
@@ -279,6 +302,95 @@
         ℹ️ Training runs in the background. Use the training logs to monitor progress.
         <br>
         🔄 Reset button returns model to original YOLOv8n before fine-tuning.
+      </div>
+    </div>
+
+    <!-- Specialized LoRA Training -->
+    <div class="training-controls-card">
+      <h3>🎯 Specialized LoRA Training</h3>
+      <p>Train specialized LoRA adapters for specific tasks (digits, colors). Freeze base YOLO backbone, train only LoRA layers.</p>
+
+      <div class="specialized-training-section">
+        <!-- Training Type Selection -->
+        <div class="training-type-selection">
+          <h4>Select Training Task:</h4>
+          <div class="training-type-buttons">
+            <button (click)="trainingType.set('digits')"
+                    [class.selected]="trainingType() === 'digits'"
+                    class="training-type-btn">
+              🔢 Digits
+            </button>
+            <button (click)="trainingType.set('colors')"
+                    [class.selected]="trainingType() === 'colors'"
+                    class="training-type-btn">
+              🎨 Colors
+            </button>
+          </div>
+        </div>
+
+        <!-- LoRA Training Parameters -->
+        <div class="lora-params" *ngIf="trainingType()">
+          <div class="param-group">
+            <label for="lora-rank">LoRA Rank:</label>
+            <input type="number"
+                   id="lora-rank"
+                   min="1"
+                   max="32"
+                   [(ngModel)]="loraRank"
+                   class="param-input">
+            <span class="param-desc">Adapter dimension (8 default)</span>
+          </div>
+
+          <div class="param-group">
+            <label for="lora-learning-rate">Learning Rate:</label>
+            <input type="number"
+                   id="lora-learning-rate"
+                   min="0.00001"
+                   max="0.01"
+                   step="0.00001"
+                   [(ngModel)]="loraLearningRate"
+                   class="param-input">
+            <span class="param-desc">LoRA learning rate</span>
+          </div>
+        </div>
+
+        <!-- Training Actions -->
+        <div class="specialized-actions" *ngIf="trainingType()">
+          <div class="action-buttons">
+            <button *ngIf="trainingType() === 'digits'" (click)="sendSpecializedToBackend('digits')"
+                    class="upload-btn">
+              📤 Upload Digits Data
+            </button>
+            <button *ngIf="trainingType() === 'colors'" (click)="sendSpecializedToBackend('colors')"
+                    class="upload-btn">
+              📤 Upload Colors Data
+            </button>
+
+            <button *ngIf="trainingType() === 'digits'" (click)="startSpecializedTraining('digits')"
+                    class="lora-train-btn">
+              🧠 Train LoRA (Freeze Base)
+            </button>
+            <button *ngIf="trainingType() === 'colors'" (click)="startSpecializedTraining('colors')"
+                    class="lora-train-btn">
+              🧠 Train LoRA (Freeze Base)
+            </button>
+
+            <button *ngIf="trainingType() === 'digits'" (click)="loadLoraAdapter('digits')"
+                    class="load-adapter-btn">
+              🔌 Load Digits Adapter
+            </button>
+            <button *ngIf="trainingType() === 'colors'" (click)="loadLoraAdapter('colors')"
+                    class="load-adapter-btn">
+              🔌 Load Colors Adapter
+            </button>
+          </div>
+
+          <div class="training-tip">
+            💡 <strong>Tip:</strong> Upload specialized data, train LoRA adapter, then load the adapter for inference.
+            <br>
+            🧊 Base YOLO backbone remains frozen - only LoRA layers are trained!
+          </div>
+        </div>
       </div>
     </div>
 
