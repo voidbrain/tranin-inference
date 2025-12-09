@@ -25,7 +25,7 @@ export class TrainingLogs implements OnInit {
   chartData: any[] = [];
   isLoading = false;
   status = 'Ready';
-  private backendUrl = 'http://localhost:8000'; // Direct backend URL
+  private backendUrl = 'http://backend:8000'; // Use backend service directly in dev mode
 
   constructor(private http: HttpClient) {}
 

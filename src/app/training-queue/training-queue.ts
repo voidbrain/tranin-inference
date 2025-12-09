@@ -7,6 +7,10 @@ interface TrainingStatus {
   images_waiting: number;
   training_sessions: number;
   ready_for_training: boolean;
+  last_training_time: string | null;
+  current_model: string;
+  processed_images: number;
+  total_images_annotated: number;
 }
 
 interface TrainingRequest {
@@ -22,7 +26,7 @@ interface TrainingRequest {
   styleUrl: './training-queue.scss',
 })
 export class TrainingQueue {
-  private backendUrl = 'http://localhost:8000';
+  private backendUrl = 'http://backend:8000';
 
   // Signals for reactive state
   trainingStatus = signal<TrainingStatus | null>(null);
@@ -49,8 +53,29 @@ export class TrainingQueue {
       this.trainingStatus.set({
         images_waiting: 0,
         training_sessions: 0,
-        ready_for_training: false
+        ready_for_training: false,
+        last_training_time: null,
+        current_model: "YOLOv8n (Base)",
+        processed_images: 0,
+        total_images_annotated: 0
       });
+    }
+  }
+
+  async resetModel() {
+    try {
+      this.trainingError.set(null);
+      this.trainingSuccess.set(null);
+
+      const response = await this.http.post(`${this.backendUrl}/reset-model`, {}).toPromise();
+      console.log('Model reset:', response);
+
+      this.trainingSuccess.set("Model reset to base YOLOv8n successfully!");
+      this.loadTrainingStatus(); // Refresh status
+
+    } catch (error: any) {
+      console.error('Failed to reset model:', error);
+      this.trainingError.set(`Failed to reset model: ${error.message}`);
     }
   }
 
@@ -89,4 +114,23 @@ export class TrainingQueue {
   canStartTraining = () => this.trainingStatus()?.ready_for_training && !this.isTraining();
   hasError = () => this.trainingError() !== null;
   hasSuccess = () => this.trainingSuccess() !== null;
+
+  // Utility methods
+  formatDateTime(timestamp: string | null): string {
+    if (!timestamp) return 'Never';
+
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch (error) {
+      return timestamp; // Return raw timestamp if parsing fails
+    }
+  }
 }

@@ -23,6 +23,40 @@
           <div class="status-desc">Total training runs completed</div>
         </div>
       </div>
+
+      <div class="status-item">
+        <div class="status-icon">📂</div>
+        <div class="status-info">
+          <div class="status-number">{{ trainingStatus()?.total_images_annotated || 0 }}</div>
+          <div class="status-label">Total Annotated</div>
+          <div class="status-desc">Images processed since start</div>
+        </div>
+      </div>
+
+      <div class="status-item">
+        <div class="status-icon">🔄</div>
+        <div class="status-info">
+          <div class="status-number">{{ trainingStatus()?.processed_images || 0 }}</div>
+          <div class="status-label">Images Processed</div>
+          <div class="status-desc">Moved to archive after training</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Information -->
+  <div class="model-info-card">
+    <h3>🤖 Current Model Info</h3>
+    <div class="model-details">
+      <div class="model-item">
+        <strong>Active Model:</strong> {{ trainingStatus()?.current_model || 'YOLOv8n (Base)' }}
+      </div>
+      <div class="model-item" *ngIf="trainingStatus()?.last_training_time">
+        <strong>Last Training:</strong> {{ formatDateTime(trainingStatus()?.last_training_time || null) }}
+      </div>
+      <div class="model-item" *ngIf="!trainingStatus()?.last_training_time">
+        <strong>Last Training:</strong> Never trained
+      </div>
     </div>
   </div>
 
@@ -66,15 +100,25 @@
       </div>
     </div>
 
-    <button (click)="startTraining()"
-            [disabled]="!canStartTraining()"
-            class="start-training-btn">
-      <span *ngIf="!isTraining()">🚀 Start Fine-Tuning</span>
-      <span *ngIf="isTraining()">⏳ Training in Progress...</span>
-    </button>
+    <div class="button-row">
+      <button (click)="startTraining()"
+              [disabled]="!canStartTraining()"
+              class="start-training-btn">
+        <span *ngIf="!isTraining()">🚀 Start Fine-Tuning</span>
+        <span *ngIf="isTraining()">⏳ Training in Progress...</span>
+      </button>
+
+      <button (click)="resetModel()"
+              [disabled]="trainingStatus()?.current_model === 'YOLOv8n (Base)'"
+              class="reset-model-btn">
+        🔄 Reset to Base Model
+      </button>
+    </div>
 
     <div class="training-notice">
       ℹ️ Training runs in the background. Use the training logs to monitor progress.
+      <br>
+      🔄 Reset button returns model to original YOLOv8n before fine-tuning.
     </div>
   </div>
 

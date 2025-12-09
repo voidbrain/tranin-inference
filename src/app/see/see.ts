@@ -79,7 +79,7 @@ export class See implements AfterViewInit, OnDestroy {
   private boxStartX = 0;
   private boxStartY = 0;
   private nextId = 0;
-  private backendUrl = 'http://localhost:8000'; // Direct backend URL instead of /api proxy
+  private backendUrl = 'http://backend:8000'; // Use backend service directly in dev mode
 
   constructor(private http: HttpClient) {}
 
