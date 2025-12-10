@@ -123,11 +123,11 @@ export class See implements AfterViewInit, OnDestroy {
       if (modelType === 'base') {
         await this.http.post(`${this.backendUrl}/reset-model`, {}).toPromise();
         this.status.set('Using base YOLO model for detection');
-      } else {
-        // Load LoRA adapter - merged would use the combined model
-        await this.loadLoraAdapter(modelType === 'merged' ? 'colors' : modelType); // For now, merged uses colors loader
-        this.status.set(`Using ${modelType} specialized adapter for detection`);
-      }
+    } else {
+      // Load LoRA adapter or merged model
+      await this.loadLoraAdapter(modelType);
+      this.status.set(`Using ${modelType} specialized adapter for detection`);
+    }
     } catch (error: any) {
       console.error(`Failed to switch to ${modelType} model:`, error);
       this.status.set(`Failed to load ${modelType} model: ${error.message}`);
@@ -494,7 +494,7 @@ export class See implements AfterViewInit, OnDestroy {
     }
   }
 
-  async loadLoraAdapter(trainingType: 'digits' | 'colors') {
+  async loadLoraAdapter(trainingType: 'digits' | 'colors' | 'merged') {
     try {
       this.trainingError.set(null);
       this.trainingSuccess.set(null);
@@ -503,13 +503,15 @@ export class See implements AfterViewInit, OnDestroy {
         training_type: trainingType
       }).toPromise();
 
-      console.log(`LoRA adapter loaded for ${trainingType}:`, response);
-      this.trainingSuccess.set(`LoRA adapter for ${trainingType} loaded successfully!`);
-      // LoRA adapter loaded successfully
+      console.log(`${trainingType} model loaded:`, response);
+      const modelText = trainingType === 'merged' ? 'Merged model' : `LoRA adapter for ${trainingType}`;
+      this.trainingSuccess.set(`${modelText} loaded successfully!`);
+      // Model loaded successfully
 
     } catch (error: any) {
-      console.error(`Failed to load LoRA adapter for ${trainingType}:`, error);
-      this.trainingError.set(`Failed to load ${trainingType} LoRA adapter: ${error.message}`);
+      console.error(`Failed to load ${trainingType} model:`, error);
+      const modelText = trainingType === 'merged' ? 'merged model' : `${trainingType} LoRA adapter`;
+      this.trainingError.set(`Failed to load ${modelText}: ${error.message}`);
     }
   }
 

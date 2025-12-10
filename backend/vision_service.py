@@ -389,12 +389,60 @@ class VisionService:
         except Exception as e:
             raise Exception(f"Failed to load LoRA adapter: {str(e)}")
 
+    async def load_merged_model(self, training_data: dict) -> dict:
+        """Load a merged model that combines digits and colors"""
+        try:
+            training_type = training_data.get("training_type")
+            if training_type != "merged":
+                raise Exception(f"Invalid training type for merged model: {training_type}")
+
+            # Check if merged model files exist
+            merged_pt_file = self.merged_dir / "digits_colors_merged.pt"
+            merged_onnx_file = self.merged_dir / "digits_colors_merged.onnx"
+
+            if not merged_pt_file.exists() and not merged_onnx_file.exists():
+                raise Exception("Merged model not found. Create the merged model first.")
+
+            # Set the model to indicate we're using a merged model
+            self.model = {
+                "type": "merged",
+                "training_type": "merged",
+                "merged_path": str(merged_pt_file) if merged_pt_file.exists() else str(merged_onnx_file),
+                "onnx_path": str(merged_onnx_file) if merged_onnx_file.exists() else None,
+                "base_model": "YOLOv8n"
+            }
+            self.using_base_model = False
+
+            return {
+                "message": "Merged model loaded successfully",
+                "training_type": "merged",
+                "model_path": str(merged_pt_file) if merged_pt_file.exists() else str(merged_onnx_file),
+                "onnx_path": str(merged_onnx_file) if merged_onnx_file.exists() else None,
+                "model_status": "loaded"
+            }
+
+        except Exception as e:
+            raise Exception(f"Failed to load merged model: {str(e)}")
+
     async def load_lora_adapter_endpoint(self, training_data: dict) -> dict:
-        """API endpoint wrapper for loading LoRA adapter"""
+        """API endpoint wrapper for loading LoRA adapter or merged model"""
         from fastapi import HTTPException
 
         try:
-            return await self.load_lora_adapter(training_data)
+            training_type = training_data.get("training_type")
+            if training_type == "merged":
+                return await self.load_merged_model(training_data)
+            else:
+                return await self.load_lora_adapter(training_data)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def load_merged_model_endpoint(self, training_data: dict) -> dict:
+        """API endpoint wrapper for loading merged model specifically"""
+        from fastapi import HTTPException
+
+        try:
+            return await self.load_merged_model(training_data)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
