@@ -12,6 +12,7 @@ interface Detection {
   width: number;
   height: number;
   id: number;
+  mode: 'digits' | 'colors'; // Remember which mode created this detection
 }
 
 @Component({
@@ -62,8 +63,8 @@ export class See implements AfterViewInit, OnDestroy {
 
   set detectionMode(value: 'digits' | 'colors') {
     this._detectionMode.set(value);
-    // When mode changes, update border styles immediately
-    this.drawDetections();
+    // Note: We don't call drawDetections() here anymore because we want existing boxes
+    // to keep their original line style based on the mode they were created with
     this.loadAvailableTags();
   }
 
@@ -289,7 +290,8 @@ export class See implements AfterViewInit, OnDestroy {
         y: detection.box.yMin,
         width: detection.box.xMax - detection.box.xMin,
         height: detection.box.yMax - detection.box.yMin,
-        id: this.nextId++
+        id: this.nextId++,
+        mode: this._detectionMode() // Store the mode this detection was created with
       }));
 
       this.detections.set(detectionResults);
@@ -328,7 +330,7 @@ export class See implements AfterViewInit, OnDestroy {
       // Draw box
       ctx.strokeStyle = '#00FF00';
       ctx.lineWidth = 2;
-      if (this.detectionMode === 'colors') {
+      if (detection.mode === 'colors') {
         ctx.setLineDash([5, 5]); // Dashed line for colors
       } else {
         ctx.setLineDash([]); // Solid line for digits
@@ -658,7 +660,8 @@ export class See implements AfterViewInit, OnDestroy {
         y: box.y || 0,
         width: box.width,
         height: box.height,
-        id: this.nextId++
+        id: this.nextId++,
+        mode: this._detectionMode() // Store the mode this box was created with
       };
 
       console.log('Adding new detection:', newDetection);
