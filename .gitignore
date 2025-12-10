@@ -78,9 +78,12 @@ backend/*.pyc
 *.sqlite3
 
 # Models and data
-backend/models/*.pt
+backend/models/merged/
+backend/models/*/*.pt
 backend/models/*/trained/
 backend/models/*/waiting/
+backend/models/*/loras/
+backend/models/*/runs/
 backend/data/speech/trained/
 backend/data/speech/waiting/
 backend/data/vision/*/trained/

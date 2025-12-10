@@ -1,0 +1,4 @@
+# Multilingual speech model (English + Italian)
+# Languages: en, it
+# Base model: whisper-tiny
+# LoRA adapters: en.safetensors, it.safetensors

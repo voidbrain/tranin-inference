@@ -1,0 +1,8 @@
+# Merged YOLO Model
+Base: backend/models/vision/yolov8n.pt
+LoRAs: backend/models/vision/loras/digits/digits.safetensors, backend/models/vision/loras/colors/colors.safetensors
+Format: PyTorch (.pt)
+Description: Combined digits and colors detection capabilities
+
+This is a placeholder for the actual merged YOLO model.
+In production, this would contain the actual merged weights.

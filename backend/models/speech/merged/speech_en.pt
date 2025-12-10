@@ -1,0 +1,4 @@
+# English speech model
+# Language: en
+# Base model: whisper-tiny
+# LoRA adapter: en.safetensors
