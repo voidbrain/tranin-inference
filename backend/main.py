@@ -130,117 +130,200 @@ services = initialize_services(SERVICE_CONFIGS)
 
 # ===== ENDPOINT REGISTRATION =====
 def register_endpoints(app, services, configs):
-    """Register all service endpoints with proper async handling"""
-    for service_name, service_instance in services.items():
-        config = configs[service_name]
+    """Register all service endpoints with proper service isolation"""
+    global_endpoints = []
+    service_endpoints = {}
 
-        # Health endpoint
-        async def health_endpoint():
-            return {"status": "healthy"}
-
-        app.add_api_route(f"/{service_name}/health", health_endpoint, methods=["GET"])
-
-        # Service-specific endpoints
+    # Separate endpoints by service
+    for service_name, config in configs.items():
         if 'endpoints' in config:
             for endpoint_config in config['endpoints']:
+                path = endpoint_config['path']
+                if path.startswith('/'):
+                    # Global endpoints (shared across services)
+                    global_endpoints.append((endpoint_config, service_name))
+                else:
+                    # Service-specific endpoints
+                    if service_name not in service_endpoints:
+                        service_endpoints[service_name] = []
+                    service_endpoints[service_name].append((endpoint_config, service_name))
+
+    # Register health endpoints for each service
+    for service_name in services.keys():
+        async def health_endpoint(service=service_name):
+            return {"status": "healthy", "service": service}
+
+        app.add_api_route(f"/{service_name}/health", health_endpoint, methods=["GET"], tags=[service_name])
+
+    # Register global endpoints
+    for endpoint_config, service_name in global_endpoints:
+        try:
+            register_single_endpoint(app, endpoint_config, services[service_name], service_name)
+        except Exception as e:
+            print(f"✗ Failed to register global endpoint {endpoint_config.get('path', 'unknown')}: {e}")
+
+    # Register service-specific endpoints
+    for service_name, endpoints in service_endpoints.items():
+        for endpoint_config, _ in endpoints:
+            try:
+                register_single_endpoint(app, endpoint_config, services[service_name], service_name)
+            except Exception as e:
+                print(f"✗ Failed to register {service_name} endpoint {endpoint_config.get('path', 'unknown')}: {e}")
+
+def register_single_endpoint(app, endpoint_config, service_instance, service_name):
+    """Register a single endpoint with proper error handling"""
+    path = endpoint_config['path']
+    methods = endpoint_config['methods']
+    handler_name = endpoint_config['handler']
+    params = endpoint_config.get('params', [])
+
+    handler_method = getattr(service_instance, handler_name, None)
+    if not handler_method:
+        raise AttributeError(f"Handler method '{handler_name}' not found in {service_name} service")
+
+    import inspect
+    is_async_method = inspect.iscoroutinefunction(handler_method)
+
+    # Create proper endpoint function
+    if methods == ["GET"] and not params:
+        # Simple GET without parameters
+        async def get_endpoint():
+            try:
+                if is_async_method:
+                    return await handler_method()
+                else:
+                    import asyncio
+                    import concurrent.futures
+                    loop = asyncio.get_event_loop()
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        return await loop.run_in_executor(executor, handler_method)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Endpoint error: {str(e)}")
+
+        endpoint_function = get_endpoint
+
+    elif methods == ["POST"] and params:
+        from fastapi import Request
+        if params[0] == "training_data: dict":
+            async def post_training_endpoint(request: Request):
                 try:
-                    path = endpoint_config['path']
-                    methods = endpoint_config['methods']
-                    handler_name = endpoint_config['handler']
-                    params = endpoint_config.get('params', [])
-
-                    handler_method = getattr(service_instance, handler_name, None)
-                    if not handler_method:
-                        raise AttributeError(f"Handler method '{handler_name}' not found")
-
-                    import inspect
-                    is_async_method = inspect.iscoroutinefunction(handler_method)
-
-                    # Create endpoint based on method type and parameters
-                    if methods == ["GET"] and not params:
-                        # GET without parameters
-                        if is_async_method:
-                            async def async_get_endpoint():
-                                return await handler_method()
-                            endpoint_function = async_get_endpoint
-                        else:
-                            def sync_get_endpoint():
-                                return handler_method()
-                            endpoint_function = sync_get_endpoint
-
-                    elif methods == ["POST"] and params:
-                        from fastapi import Request
-                        if params[0] == "training_data: dict":
-                            # Training data upload
-                            async def post_training_endpoint(request: Request):
-                                data = await request.json()
-                                if is_async_method:
-                                    return await handler_method(data)
-                                else:
-                                    return handler_method(data)
-                            endpoint_function = post_training_endpoint
-
-                        elif "BackgroundTasks" in str(params):
-                            # Background tasks
-                            async def post_bg_endpoint(request: Request):
-                                from fastapi import BackgroundTasks
-                                tasks = BackgroundTasks()
-                                data = await request.json() if request.method == "POST" else {}
-                                if is_async_method:
-                                    await handler_method(data, tasks)
-                                else:
-                                    handler_method(data, tasks)
-                                return {"message": "Background task started"}
-                            endpoint_function = post_bg_endpoint
-
-                        elif params == ["file: UploadFile"]:
-                            # File upload
-                            async def post_file_endpoint(file):
-                                if is_async_method:
-                                    return await handler_method(file)
-                                else:
-                                    return handler_method(file)
-                            endpoint_function = post_file_endpoint
-
-                        else:
-                            # Generic POST with data
-                            async def post_generic_endpoint(request: Request):
-                                data = await request.json()
-                                if is_async_method:
-                                    return await handler_method(data)
-                                else:
-                                    return handler_method(data)
-                            endpoint_function = post_generic_endpoint
-
-                    elif methods == ["GET"] and params:
-                        # GET with path parameters
-                        def get_with_params_endpoint(**kwargs):
-                            if is_async_method:
-                                import asyncio
-                                loop = asyncio.new_event_loop()
-                                try:
-                                    return loop.run_until_complete(handler_method(**kwargs))
-                                finally:
-                                    loop.close()
-                            else:
-                                return handler_method(**kwargs)
-                        endpoint_function = get_with_params_endpoint
-
+                    data = await request.json()
+                    if is_async_method:
+                        return await handler_method(data)
                     else:
-                        # Fallback - create async wrapper
-                        if is_async_method:
-                            async def async_fallback_endpoint():
-                                return await handler_method()
-                        else:
-                            async def sync_fallback_endpoint():
-                                return handler_method()
-                        endpoint_function = async_fallback_endpoint if is_async_method else sync_fallback_endpoint
-
-                    app.add_api_route(path, endpoint_function, methods=methods, tags=[service_name])
-                    print(f"✓ Registered endpoint: {methods[0]} {path}")
-
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, data)
                 except Exception as e:
-                    print(f"✗ Failed to register endpoint {endpoint_config.get('path', 'unknown')}: {e}")
+                    raise HTTPException(status_code=500, detail=f"Training data error: {str(e)}")
+
+            endpoint_function = post_training_endpoint
+
+        else:
+            async def post_generic_endpoint(request: Request):
+                try:
+                    data = await request.json()
+                    if is_async_method:
+                        return await handler_method(data)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, data)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"POST error: {str(e)}")
+
+            endpoint_function = post_generic_endpoint
+
+    elif methods == ["GET"] and params:
+        # Check if this endpoint has path parameters (contains {param} in path)
+        import re
+        path_params = re.findall(r'\{([^}]+)\}', path)
+
+        if path_params:
+            # Create function signature with exact path parameter names
+            param_names = [p.split(':')[0] for p in params]  # Remove type annotations
+
+            if len(path_params) == 1 and len(param_names) == 1:
+                # Single path parameter case - create a function with correct signature
+                param_name = path_params[0]
+
+                def create_path_endpoint():
+                    handler = handler_method
+                    is_async = is_async_method
+
+                    async def path_endpoint(detection_mode: str):
+                        try:
+                            kwargs = {param_name: detection_mode}
+                            if is_async:
+                                return await handler(**kwargs)
+                            else:
+                                import asyncio
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler, detection_mode)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"GET path param error: {str(e)}")
+
+                    return path_endpoint
+
+                endpoint_function = create_path_endpoint()
+            else:
+                # Multiple parameters - fallback to kwargs
+                async def get_mixed_params_endpoint(**kwargs):
+                    try:
+                        if is_async_method:
+                            return await handler_method(**kwargs)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, **kwargs)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"GET mixed params error: {str(e)}")
+
+                endpoint_function = get_mixed_params_endpoint
+        else:
+            # Query parameters only
+            async def get_query_params_endpoint(**kwargs):
+                try:
+                    if is_async_method:
+                        return await handler_method(**kwargs)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, **kwargs)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"GET query params error: {str(e)}")
+
+            endpoint_function = get_query_params_endpoint
+
+    else:
+        # Default async wrapper
+        async def default_endpoint():
+            try:
+                if is_async_method:
+                    return await handler_method()
+                else:
+                    import asyncio
+                    import concurrent.futures
+                    loop = asyncio.get_event_loop()
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        return await loop.run_in_executor(executor, handler_method)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Default endpoint error: {str(e)}")
+
+        endpoint_function = default_endpoint
+
+    app.add_api_route(path, endpoint_function, methods=methods, tags=[service_name])
+    print(f"✓ Registered endpoint: {methods[0]} {path} [{service_name}]")
 
 register_endpoints(app, services, SERVICE_CONFIGS)
 

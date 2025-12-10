@@ -120,26 +120,98 @@ class VisionService:
         except Exception as e:
             return {"error": str(e), "count": 0}
 
-    def get_training_queue_status(self) -> dict:
-        """Get training queue status"""
+    def get_training_queue_status(self, page: int = 1, per_page: int = 20) -> dict:
+        """Get training queue status with pagination and separate digit/color counts"""
         try:
-            # Count images waiting for training
-            images_waiting = 0
-            for dir_path in [self.digits_waiting_dir, self.colors_waiting_dir]:
-                images_waiting += len(list(dir_path.glob("*.txt")))  # annotation files
+            # Count images waiting for training - separate by type
+            digits_waiting = len(list(self.digits_waiting_dir.glob("*.txt")))
+            colors_waiting = len(list(self.colors_waiting_dir.glob("*.txt")))
+            total_waiting = digits_waiting + colors_waiting
 
-            processed_images = 0
-            for dir_path in [self.digits_processed_dir, self.colors_processed_dir]:
-                processed_images += len(list(dir_path.glob("*.txt")))
+            # Count processed images - separate by type
+            digits_processed = len(list(self.digits_processed_dir.glob("*.txt")))
+            colors_processed = len(list(self.colors_processed_dir.glob("*.txt")))
+            total_processed = digits_processed + colors_processed
+
+            # Get waiting file details with pagination
+            waiting_files = []
+            for dir_type, dir_path in [("digits", self.digits_waiting_dir), ("colors", self.colors_waiting_dir)]:
+                for annotation_file in dir_path.glob("*.txt"):
+                    file_stat = annotation_file.stat()
+                    waiting_files.append({
+                        "filename": annotation_file.name,
+                        "type": dir_type,
+                        "size": file_stat.st_size,
+                        "created": datetime.datetime.fromtimestamp(file_stat.st_ctime).isoformat(),
+                        "path": str(annotation_file)
+                    })
+
+            # Sort by creation time (newest first) and paginate
+            waiting_files.sort(key=lambda x: x["created"], reverse=True)
+            total_files = len(waiting_files)
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            paginated_files = waiting_files[start_idx:end_idx]
+
+            # Get processed file details with pagination
+            processed_files = []
+            for dir_type, dir_path in [("digits", self.digits_processed_dir), ("colors", self.colors_processed_dir)]:
+                for annotation_file in dir_path.glob("*.txt"):
+                    file_stat = annotation_file.stat()
+                    processed_files.append({
+                        "filename": annotation_file.name,
+                        "type": dir_type,
+                        "size": file_stat.st_size,
+                        "processed": datetime.datetime.fromtimestamp(file_stat.st_mtime).isoformat(),
+                        "path": str(annotation_file)
+                    })
+
+            # Sort by processed time (newest first) and paginate
+            processed_files.sort(key=lambda x: x["processed"], reverse=True)
+            total_processed_files = len(processed_files)
+            proc_start_idx = (page - 1) * per_page
+            proc_end_idx = proc_start_idx + per_page
+            paginated_processed = processed_files[proc_start_idx:proc_end_idx]
 
             return {
-                "images_waiting": images_waiting,
+                # Aggregated counts (for backward compatibility)
+                "images_waiting": total_waiting,
+                "processed_images": total_processed,
+                "total_images_annotated": total_processed,
+
+                # Separate counts by type
+                "digits_waiting": digits_waiting,
+                "colors_waiting": colors_waiting,
+                "digits_processed": digits_processed,
+                "colors_processed": colors_processed,
+
+                # Training status
                 "training_sessions": 0,  # Not implemented yet
-                "ready_for_training": images_waiting > 0,
+                "ready_for_training": {
+                    "digits": digits_waiting > 0,
+                    "colors": colors_waiting > 0,
+                    "combined": total_waiting > 0
+                },
+
+                # Pagination info and data
+                "waiting_files": {
+                    "total": total_files,
+                    "page": page,
+                    "per_page": per_page,
+                    "pages": (total_files + per_page - 1) // per_page,
+                    "data": paginated_files
+                },
+
+                "processed_files": {
+                    "total": total_processed_files,
+                    "page": page,
+                    "per_page": per_page,
+                    "pages": (total_processed_files + per_page - 1) // per_page,
+                    "data": paginated_processed
+                },
+
                 "last_training_time": None,
-                "current_model": "YOLOv8n (Base)",
-                "processed_images": processed_images,
-                "total_images_annotated": processed_images
+                "current_model": "YOLOv8n (Base)"
             }
         except Exception as e:
             return {"error": str(e)}
@@ -149,7 +221,7 @@ class VisionService:
         return {"logs": self.training_logs[-50:]}  # Last 50 logs
 
     async def process_training_data(self, training_data: dict):
-        """Process training data with labels and bounding boxes"""
+        """Process training data with labels and bounding boxes, splitting by detection type"""
         try:
             # Extract image data (base64) and detections
             image_data = training_data.get("imageData", "")
@@ -162,16 +234,116 @@ class VisionService:
             image_bytes = base64.b64decode(image_data.split(",")[1])
             image = Image.open(io.BytesIO(image_bytes))
 
-            # Save image and annotations
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            image_filename = f"vision_{timestamp}_training.jpg"
-            annotation_filename = f"vision_{timestamp}_training.txt"
+            # Analyze detections to categorize by type
+            digit_detections = []
+            color_detections = []
 
-            # Save image (placeholder - would save processed version)
-            # For now just store the data
+            for detection in detections:
+                label = detection.get("label", "")
+                # Check if it's a digit (0-9)
+                if label.isdigit() and label in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                    digit_detections.append(detection)
+                # Check if it's a color
+                elif label in ['red', 'blue', 'green', 'yellow', 'orange', 'purple']:
+                    color_detections.append(detection)
+
+            # Generate unique timestamp for this training data
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+
+            # Save data based on detection types found
+            saved_files = {}
+
+            # Process digit detections
+            if digit_detections:
+                digit_image_path = self.digits_waiting_dir / f"vision_{timestamp}_digits.jpg"
+                digit_annotation_path = self.digits_waiting_dir / f"vision_{timestamp}_digits.txt"
+
+                # Save the image (convert to RGB if necessary to ensure JPEG compatibility)
+                if image.mode != 'RGB':
+                    rgb_image = image.convert('RGB')
+                    rgb_image.save(digit_image_path, 'JPEG', quality=95)
+                else:
+                    image.save(digit_image_path, 'JPEG', quality=95)
+
+                # Save YOLO-format annotations for digits
+                with open(digit_annotation_path, 'w') as f:
+                    for detection in digit_detections:
+                        label = detection["label"]
+                        bbox = detection["bbox"]  # [x1, y1, x2, y2]
+                        confidence = detection.get("confidence", 100)
+
+                        # Convert to YOLO format: class x_center y_center width height
+                        # Map digits to class indices (0-9)
+                        class_id = int(label)
+
+                        # Convert pixel coordinates to normalized [0,1] coordinates
+                        x1, y1, x2, y2 = bbox
+                        img_width, img_height = image.size
+
+                        x_center = ((x1 + x2) / 2) / img_width
+                        y_center = ((y1 + y2) / 2) / img_height
+                        width = (x2 - x1) / img_width
+                        height = (y2 - y1) / img_height
+
+                        confidence_normalized = confidence / 100.0
+
+                        f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f} {confidence_normalized:.6f}\n")
+
+                saved_files["digits"] = {
+                    "image": str(digit_image_path),
+                    "annotation": str(digit_annotation_path),
+                    "detections": len(digit_detections)
+                }
+
+            # Process color detections
+            if color_detections:
+                color_image_path = self.colors_waiting_dir / f"vision_{timestamp}_colors.jpg"
+                color_annotation_path = self.colors_waiting_dir / f"vision_{timestamp}_colors.txt"
+
+                # Save the image (convert to RGB if necessary to ensure JPEG compatibility)
+                if image.mode != 'RGB':
+                    rgb_image = image.convert('RGB')
+                    rgb_image.save(color_image_path, 'JPEG', quality=95)
+                else:
+                    image.save(color_image_path, 'JPEG', quality=95)
+
+                # Map color names to class indices
+                color_to_id = {'red': 0, 'blue': 1, 'green': 2, 'yellow': 3, 'orange': 4, 'purple': 5}
+
+                # Save YOLO-format annotations for colors
+                with open(color_annotation_path, 'w') as f:
+                    for detection in color_detections:
+                        label = detection["label"]
+                        bbox = detection["bbox"]
+                        confidence = detection.get("confidence", 100)
+
+                        class_id = color_to_id[label]
+
+                        # Convert pixel coordinates to normalized [0,1] coordinates
+                        x1, y1, x2, y2 = bbox
+                        img_width, img_height = image.size
+
+                        x_center = ((x1 + x2) / 2) / img_width
+                        y_center = ((y1 + y2) / 2) / img_height
+                        width = (x2 - x1) / img_width
+                        height = (y2 - y1) / img_height
+
+                        confidence_normalized = confidence / 100.0
+
+                        f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f} {confidence_normalized:.6f}\n")
+
+                saved_files["colors"] = {
+                    "image": str(color_image_path),
+                    "annotation": str(color_annotation_path),
+                    "detections": len(color_detections)
+                }
+
             processed_data = {
                 "image_size": image.size,
-                "detections": detections,
+                "total_detections": len(detections),
+                "digit_detections": len(digit_detections),
+                "color_detections": len(color_detections),
+                "saved_files": saved_files,
                 "timestamp": timestamp
             }
 
@@ -445,9 +617,9 @@ class VisionService:
         """API endpoint wrapper for getting specialized training count"""
         return self.get_specialized_training_count(training_type)
 
-    def get_training_queue_status_endpoint(self) -> dict:
-        """API endpoint wrapper for getting training queue status"""
-        return self.get_training_queue_status()
+    def get_training_queue_status_endpoint(self, page: int = 1, per_page: int = 20) -> dict:
+        """API endpoint wrapper for getting training queue status with pagination"""
+        return self.get_training_queue_status(page, per_page)
 
     def get_training_logs_endpoint(self) -> dict:
         """API endpoint wrapper for getting training logs"""
@@ -568,21 +740,15 @@ class VisionService:
             },
             "endpoints": [
                 {
-                    "path": "/vision/detect",
-                    "methods": ["POST"],
-                    "handler": "detect_objects_endpoint",
-                    "params": ["file: UploadFile"]
+                    "path": "/tags/{detection_mode}",
+                    "methods": ["GET"],
+                    "handler": "get_tags_endpoint",
+                    "params": ["detection_mode: str"]
                 },
                 {
                     "path": "/vision/model-status",
                     "methods": ["GET"],
                     "handler": "get_model_status_endpoint"
-                },
-                {
-                    "path": "/tags/{detection_mode}",
-                    "methods": ["GET"],
-                    "handler": "get_tags_endpoint",
-                    "params": ["detection_mode: str"]
                 },
                 {
                     "path": "/upload-training-data",

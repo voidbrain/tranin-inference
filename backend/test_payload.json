@@ -1,0 +1,25 @@
+{
+  "imageData": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBD",
+  "detections": [
+    {
+      "label": "4",
+      "bbox": [
+        221,
+        289,
+        284,
+        421
+      ],
+      "confidence": 96
+    },
+    {
+      "label": "green",
+      "bbox": [
+        83,
+        165.75,
+        243,
+        246.75
+      ],
+      "confidence": 100
+    }
+  ]
+}
