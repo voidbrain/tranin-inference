@@ -708,6 +708,10 @@ class SpeechService:
         except Exception as e:
             return {"error": str(e), "count": 0}
 
+    def speech_training_count_endpoint(self) -> dict:
+        """Frontend expects this exact endpoint: speech-training-count (direct naming)"""
+        return self.get_speech_training_count_endpoint()
+
     def get_whisper_training_status_endpoint(self) -> dict:
         """API endpoint wrapper for getting Whisper training status"""
         return self.get_training_status()
@@ -918,6 +922,11 @@ class SpeechService:
                     "path": "/speech/training-count",
                     "methods": ["GET"],
                     "handler": "get_speech_training_count_endpoint"
+                },
+                {
+                    "path": "/speech-training-count",
+                    "methods": ["GET"],
+                    "handler": "speech_training_count_endpoint"
                 },
                 {
                     "path": "/speech/training-status",

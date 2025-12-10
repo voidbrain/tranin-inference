@@ -74,7 +74,7 @@ export class See implements AfterViewInit, OnDestroy {
   // Method to load tags from backend based on detection mode
   async loadAvailableTags() {
     try {
-      const response = await this.http.get<any>(`http://backend:8000/tags/${this._detectionMode()}`).toPromise();
+      const response = await this.http.get<any>(`${this.backendUrl}/tags/${this._detectionMode()}`).toPromise();
       this.availableTags.set(response.tags);
     } catch (error) {
       console.warn('Failed to load tags from backend:', error);
@@ -122,7 +122,10 @@ export class See implements AfterViewInit, OnDestroy {
   private boxStartX = 0;
   private boxStartY = 0;
   private nextId = 0;
-  private backendUrl = 'http://backend:8000'; // Use backend service directly in dev mode
+  // Use localhost for development, backend service for production/Docker
+  private backendUrl = window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : 'http://backend:8000';
 
   constructor(private http: HttpClient) {}
 

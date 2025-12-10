@@ -11,7 +11,10 @@ import { HttpClientModule } from '@angular/common/http';
   styleUrl: './listen.scss',
 })
 export class Listen implements OnInit, OnDestroy {
-  private backendUrl = 'http://backend:8000';
+  // Use localhost for development, backend service for production/Docker
+  private backendUrl = window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : 'http://backend:8000';
 
   // Language and recording state
   selectedLanguage = 'en';

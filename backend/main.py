@@ -92,9 +92,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4200",  # Angular default port
+        "http://localhost:4223",  # Vite development server
+        "http://127.0.0.1:4200", # Alternative localhost
+        "http://127.0.0.1:4223", # Alternative localhost
+        "*",  # Allow all for development/docker
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -124,7 +130,7 @@ services = initialize_services(SERVICE_CONFIGS)
 
 # ===== ENDPOINT REGISTRATION =====
 def register_endpoints(app, services, configs):
-    """Register all service endpoints"""
+    """Register all service endpoints with proper async handling"""
     for service_name, service_instance in services.items():
         config = configs[service_name]
 
@@ -141,85 +147,94 @@ def register_endpoints(app, services, configs):
                     path = endpoint_config['path']
                     methods = endpoint_config['methods']
                     handler_name = endpoint_config['handler']
-
                     params = endpoint_config.get('params', [])
 
                     handler_method = getattr(service_instance, handler_name, None)
                     if not handler_method:
                         raise AttributeError(f"Handler method '{handler_name}' not found")
 
-                    # Create a dynamic endpoint function that properly handles parameters
-                    if params:
-                        # Build parameter signature dynamically
-                        param_names = []
-                        param_imports = set()
+                    import inspect
+                    is_async_method = inspect.iscoroutinefunction(handler_method)
 
-                        for param in params:
-                            param_parts = param.split(':')
-                            param_name = param_parts[0].strip()
-                            param_type = param_parts[1].strip() if len(param_parts) > 1 else 'str'
-                            param_names.append(param_name)
-
-                            # Track imports needed
-                            if param_type == 'UploadFile':
-                                param_imports.add('UploadFile')
-                            elif param_type.startswith('BackgroundTasks'):
-                                param_imports.add('BackgroundTasks')
-                            elif param_type == 'TrainingRequest':
-                                param_imports.add('TrainingRequest')
-
-                        # Dynamically create the function - handle both sync and async methods
-                        param_str = ', '.join(f'{name}: {param_type}' for name in param_names)
-                        if handler_method.__name__.startswith('get_') or handler_method.__name__.endswith('_endpoint'):
-                            # Sync methods - don't await
-                            func_code = f"""
-async def endpoint_function({param_str}):
-    try:
-        result = handler_method({', '.join(param_names)})
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-                            """
+                    # Create endpoint based on method type and parameters
+                    if methods == ["GET"] and not params:
+                        # GET without parameters
+                        if is_async_method:
+                            async def async_get_endpoint():
+                                return await handler_method()
+                            endpoint_function = async_get_endpoint
                         else:
-                            # Async methods - await
-                            func_code = f"""
-async def endpoint_function({param_str}):
-    try:
-        return await handler_method({', '.join(param_names)})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-                            """
+                            def sync_get_endpoint():
+                                return handler_method()
+                            endpoint_function = sync_get_endpoint
 
-                        # Create the function with proper imports
-                        namespace = {'handler_method': handler_method, 'HTTPException': HTTPException}
-                        if 'UploadFile' in param_imports:
-                            from fastapi import UploadFile
-                            namespace['UploadFile'] = UploadFile
-                        if 'BackgroundTasks' in param_imports:
-                            from fastapi import BackgroundTasks
-                            namespace['BackgroundTasks'] = BackgroundTasks
-                        if 'TrainingRequest' in param_imports:
-                            namespace['TrainingRequest'] = TrainingRequest
+                    elif methods == ["POST"] and params:
+                        from fastapi import Request
+                        if params[0] == "training_data: dict":
+                            # Training data upload
+                            async def post_training_endpoint(request: Request):
+                                data = await request.json()
+                                if is_async_method:
+                                    return await handler_method(data)
+                                else:
+                                    return handler_method(data)
+                            endpoint_function = post_training_endpoint
 
-                        exec(func_code, namespace)
-                        endpoint_function = namespace['endpoint_function']
+                        elif "BackgroundTasks" in str(params):
+                            # Background tasks
+                            async def post_bg_endpoint(request: Request):
+                                from fastapi import BackgroundTasks
+                                tasks = BackgroundTasks()
+                                data = await request.json() if request.method == "POST" else {}
+                                if is_async_method:
+                                    await handler_method(data, tasks)
+                                else:
+                                    handler_method(data, tasks)
+                                return {"message": "Background task started"}
+                            endpoint_function = post_bg_endpoint
+
+                        elif params == ["file: UploadFile"]:
+                            # File upload
+                            async def post_file_endpoint(file):
+                                if is_async_method:
+                                    return await handler_method(file)
+                                else:
+                                    return handler_method(file)
+                            endpoint_function = post_file_endpoint
+
+                        else:
+                            # Generic POST with data
+                            async def post_generic_endpoint(request: Request):
+                                data = await request.json()
+                                if is_async_method:
+                                    return await handler_method(data)
+                                else:
+                                    return handler_method(data)
+                            endpoint_function = post_generic_endpoint
+
+                    elif methods == ["GET"] and params:
+                        # GET with path parameters
+                        def get_with_params_endpoint(**kwargs):
+                            if is_async_method:
+                                import asyncio
+                                loop = asyncio.new_event_loop()
+                                try:
+                                    return loop.run_until_complete(handler_method(**kwargs))
+                                finally:
+                                    loop.close()
+                            else:
+                                return handler_method(**kwargs)
+                        endpoint_function = get_with_params_endpoint
 
                     else:
-                        # No parameters - create unique wrapper for each endpoint
-                        def create_endpoint_wrapper(handler):
-                            async def endpoint_wrapper():
-                                try:
-                                    # Check if method is async or sync
-                                    import inspect
-                                    if inspect.iscoroutinefunction(handler):
-                                        return await handler()
-                                    else:
-                                        return handler()
-                                except Exception as e:
-                                    raise HTTPException(status_code=500, detail=str(e))
-                            return endpoint_wrapper
-
-                        endpoint_function = create_endpoint_wrapper(handler_method)
+                        # Fallback - create async wrapper
+                        if is_async_method:
+                            async def async_fallback_endpoint():
+                                return await handler_method()
+                        else:
+                            async def sync_fallback_endpoint():
+                                return handler_method()
+                        endpoint_function = async_fallback_endpoint if is_async_method else sync_fallback_endpoint
 
                     app.add_api_route(path, endpoint_function, methods=methods, tags=[service_name])
                     print(f"✓ Registered endpoint: {methods[0]} {path}")
@@ -237,4 +252,9 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    print("🚀 Starting AI Training Backend...")
+    print("📍 Host: 0.0.0.0")
+    print("🔌 Port: 8000")
+    print("🌐 CORS Origins: localhost:4200, localhost:4223, *")
+    print("📋 Serving 31 endpoints for vision + speech services")
     uvicorn.run(app, host="0.0.0.0", port=8000)
