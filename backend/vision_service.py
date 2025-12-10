@@ -358,6 +358,46 @@ class VisionService:
         self.using_base_model = True
         return {"message": "Model reset to base YOLOv8n"}
 
+    async def load_lora_adapter(self, training_data: dict) -> dict:
+        """Load a LoRA adapter for specialized detection"""
+        try:
+            training_type = training_data.get("training_type")
+            if training_type not in ["digits", "colors"]:
+                raise Exception(f"Invalid training type: {training_type}")
+
+            # Check if the LoRA adapter file exists
+            lora_file = self.models_dir / "loras" / training_type / f"{training_type}.safetensors"
+            if not lora_file.exists():
+                raise Exception(f"LoRA adapter for {training_type} not found. Train the model first.")
+
+            # Set the model to indicate we're using a specialized adapter
+            self.model = {
+                "type": "lora",
+                "training_type": training_type,
+                "lora_path": str(lora_file),
+                "base_model": "YOLOv8n"
+            }
+            self.using_base_model = False
+
+            return {
+                "message": f"LoRA adapter for {training_type} loaded successfully",
+                "training_type": training_type,
+                "lora_path": str(lora_file),
+                "model_status": "loaded"
+            }
+
+        except Exception as e:
+            raise Exception(f"Failed to load LoRA adapter: {str(e)}")
+
+    async def load_lora_adapter_endpoint(self, training_data: dict) -> dict:
+        """API endpoint wrapper for loading LoRA adapter"""
+        from fastapi import HTTPException
+
+        try:
+            return await self.load_lora_adapter(training_data)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
     def _prepare_specialized_dataset(self, training_type: str):
         """Prepare YOLO dataset from specialized training data"""
         try:
@@ -811,6 +851,12 @@ class VisionService:
                     "methods": ["POST"],
                     "handler": "train_lora_specialized_endpoint",
                     "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
+                },
+                {
+                    "path": "/load-lora-adapter",
+                    "methods": ["POST"],
+                    "handler": "load_lora_adapter_endpoint",
+                    "params": ["training_data: dict"]
                 },
                 {
                     "path": "/train",

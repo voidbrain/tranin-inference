@@ -101,8 +101,47 @@ export class See implements AfterViewInit, OnDestroy {
 
   // Specialized LoRA training
   trainingType = signal<'digits' | 'colors' | ''>('');
-  loraRank = signal(8);
+  loraRank = signal(4); // Use rank 4 for smaller adapters as suggested
   loraLearningRate = signal(0.001);
+
+  // Model selection for detection
+  selectedModel = signal<'base' | 'colors' | 'digits' | 'merged'>('base');
+
+  // Model loading methods
+  async selectModel(modelType: 'base' | 'colors' | 'digits' | 'merged') {
+    if (this.selectedModel() === modelType) {
+      // Already selected, deselect
+      this.selectedModel.set('base');
+      this.status.set('Using base model for detection');
+      return;
+    }
+
+    this.selectedModel.set(modelType);
+    this.status.set(`Switching to ${modelType} model...`);
+
+    try {
+      if (modelType === 'base') {
+        await this.http.post(`${this.backendUrl}/reset-model`, {}).toPromise();
+        this.status.set('Using base YOLO model for detection');
+      } else {
+        // Load LoRA adapter - merged would use the combined model
+        await this.loadLoraAdapter(modelType === 'merged' ? 'colors' : modelType); // For now, merged uses colors loader
+        this.status.set(`Using ${modelType} specialized adapter for detection`);
+      }
+    } catch (error: any) {
+      console.error(`Failed to switch to ${modelType} model:`, error);
+      this.status.set(`Failed to load ${modelType} model: ${error.message}`);
+      this.selectedModel.set('base'); // Revert to base model
+    }
+  }
+
+  getModelStatusText(): string {
+    const model = this.selectedModel();
+    return model === 'base' ? 'Base Model (base)' :
+           model === 'colors' ? 'Colors LoRA (base + color)' :
+           model === 'digits' ? 'Digits LoRA (base + digit)' :
+           'Merged Model (base + color + digit)';
+  }
 
   // Training Logs functionality (merged from TrainingLogs component)
   trainingLogs = signal<any[]>([]);

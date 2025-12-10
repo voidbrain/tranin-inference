@@ -22,6 +22,36 @@
 
   <!-- DETECTION TAB CONTENT -->
   <div class="tab-content" *ngIf="activeTab() === 'detect'">
+    <!-- Model Selection -->
+    <div class="model-selection-section">
+      <h3>Model Selection:</h3>
+      <div class="model-buttons">
+        <button (click)="selectModel('base')"
+                [class.selected]="selectedModel() === 'base'"
+                class="model-btn">
+          🤖 Base Model (base)
+        </button>
+        <button (click)="selectModel('colors')"
+                [class.selected]="selectedModel() === 'colors'"
+                class="model-btn">
+          🎨 Colors LoRA (base + color)
+        </button>
+        <button (click)="selectModel('digits')"
+                [class.selected]="selectedModel() === 'digits'"
+                class="model-btn">
+          🔢 Digits LoRA (base + digit)
+        </button>
+        <button (click)="selectModel('merged')"
+                [class.selected]="selectedModel() === 'merged'"
+                class="model-btn">
+          🔀 Merged (base + color + digit)
+        </button>
+      </div>
+      <div class="model-status">
+        <strong>Active:</strong> {{ getModelStatusText() }}
+      </div>
+    </div>
+
     <!-- Detection Mode Selector -->
     <div class="detection-mode-section">
       <h3>Detection Mode:</h3>
@@ -166,6 +196,10 @@
             <div class="status-number">{{ trainingStatus()?.images_waiting || 0 }}</div>
             <div class="status-label">Images Ready</div>
             <div class="status-desc">Annotated images waiting for training</div>
+            <div class="sub-counts">
+              🔢 {{ trainingStatus()?.digits_waiting || 0 }} digits &nbsp;&nbsp;
+              🎨 {{ trainingStatus()?.colors_waiting || 0 }} colors
+            </div>
           </div>
         </div>
 
@@ -184,6 +218,10 @@
             <div class="status-number">{{ trainingStatus()?.total_images_annotated || 0 }}</div>
             <div class="status-label">Total Annotated</div>
             <div class="status-desc">Images processed since start</div>
+            <div class="sub-counts">
+              🔢 {{ trainingStatus()?.digits_processed || 0 }} digits &nbsp;&nbsp;
+              🎨 {{ trainingStatus()?.colors_processed || 0 }} colors
+            </div>
           </div>
         </div>
 
@@ -214,96 +252,8 @@
       </div>
     </div>
 
-    <!-- Training Controls -->
-    <div class="training-controls-card" *ngIf="trainingStatus()?.ready_for_training">
-      <h3>🚀 General Training</h3>
-
-      <div class="training-params">
-        <div class="param-group">
-          <label for="epochs">Epochs:</label>
-          <input type="number"
-                 id="epochs"
-                 min="1"
-                 max="100"
-                 [(ngModel)]="epochs"
-                 class="param-input">
-          <span class="param-desc">Training iterations</span>
-        </div>
-
-        <div class="param-group">
-          <label for="batch-size">Batch Size:</label>
-          <input type="number"
-                 id="batch-size"
-                 min="1"
-                 max="64"
-                 [(ngModel)]="batch_size"
-                 class="param-input">
-          <span class="param-desc">Images per batch</span>
-        </div>
-
-        <div class="param-group">
-          <label for="val-split">Validation Split:</label>
-          <input type="number"
-                 id="val-split"
-                 min="0.1"
-                 max="0.5"
-                 step="0.1"
-                 [(ngModel)]="val_split"
-                 class="param-input">
-          <span class="param-desc">Test set ratio</span>
-        </div>
-
-        <div class="param-group">
-          <label for="learning-rate">Learning Rate:</label>
-          <input type="number"
-                 id="learning-rate"
-                 min="0.0001"
-                 max="0.01"
-                 step="0.0001"
-                 [(ngModel)]="learning_rate"
-                 class="param-input">
-          <span class="param-desc">Training speed</span>
-        </div>
-      </div>
-
-      <div class="training-options">
-        <div class="option-group">
-          <input type="checkbox"
-                 id="use-lora"
-                 [(ngModel)]="use_lora"
-                 class="option-checkbox">
-          <label for="use-lora" class="option-label">
-            <strong>⚡ Enable LoRA Fine-tuning</strong>
-          </label>
-          <div class="option-desc">
-            ⚡ Parameter-efficient training (smaller models, faster training)
-            <br>
-            🏋️‍♂️ Full fine-tuning (better accuracy, slower training)
-          </div>
-        </div>
-      </div>
-
-      <div class="button-row">
-        <button (click)="startTraining()"
-                [disabled]="!canStartTraining()"
-                class="start-training-btn">
-          <span *ngIf="!isTraining()">🚀 Start General Training</span>
-          <span *ngIf="isTraining()">⏳ Training in Progress...</span>
-        </button>
-
-        <button (click)="resetModel()"
-                [disabled]="trainingStatus()?.current_model === 'YOLOv8n (Base)'"
-                class="reset-model-btn">
-          🔄 Reset to Base Model
-        </button>
-      </div>
-
-      <div class="training-notice">
-        ℹ️ Training runs in the background. Use the training logs to monitor progress.
-        <br>
-        🔄 Reset button returns model to original YOLOv8n before fine-tuning.
-      </div>
-    </div>
+    <!-- General Full Training - Hidden per user request -->
+    <!-- Only LoRA fine-tuning is supported now -->
 
     <!-- Specialized LoRA Training -->
     <div class="training-controls-card">
@@ -357,15 +307,6 @@
         <!-- Training Actions -->
         <div class="specialized-actions" *ngIf="trainingType()">
           <div class="action-buttons">
-            <button *ngIf="trainingType() === 'digits'" (click)="sendSpecializedToBackend('digits')"
-                    class="upload-btn">
-              📤 Upload Digits Data
-            </button>
-            <button *ngIf="trainingType() === 'colors'" (click)="sendSpecializedToBackend('colors')"
-                    class="upload-btn">
-              📤 Upload Colors Data
-            </button>
-
             <button *ngIf="trainingType() === 'digits'" (click)="startSpecializedTraining('digits')"
                     class="lora-train-btn">
               🧠 Train LoRA (Freeze Base)
@@ -386,7 +327,7 @@
           </div>
 
           <div class="training-tip">
-            💡 <strong>Tip:</strong> Upload specialized data, train LoRA adapter, then load the adapter for inference.
+            💡 <strong>Tip:</strong> Use "Send to Backend" in Detect tab first, then train LoRA adapter, then load the adapter for inference.
             <br>
             🧊 Base YOLO backbone remains frozen - only LoRA layers are trained!
           </div>
