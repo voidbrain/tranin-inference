@@ -3,21 +3,16 @@
 LoRA Model Merging Script
 
 This script merges multiple LoRA adapters into a single merged model
-for both YOLO and Whisper models. It handles different model formats
+for both Whisper models. It handles different model formats
 and creates both PyTorch and ONNX exports.
 
 Usage examples:
-    python scripts/merge_lora.py \
-       --base base/yolov8n.pt \
-       --lora loras/digits.safetensors \
-       --lora loras/colors.safetensors \
-       --out merged/digits_colors_merged.pt
 
     python scripts/merge_lora.py \
-       --base models/whisper_models/tiny.pt \
-       --lora models/whisper_models/loras/en/en.safetensors \
-       --lora models/whisper_models/loras/it/it.safetensors \
-       --out merged/whisper_multilang.pt
+      --base models/whisper_models/tiny.pt \
+      --lora models/whisper_models/loras/en/en.safetensors \
+      --lora models/whisper_models/loras/it/it.safetensors \
+      --out merged/whisper_multilang.pt
 """
 
 import argparse
@@ -25,49 +20,6 @@ import os
 from pathlib import Path
 import torch
 from typing import List
-
-
-def merge_yolo_loras(base_model_path: str, lora_paths: List[str], output_path: str) -> dict:
-    """Merge YOLO LoRA adapters"""
-    try:
-        print(f"Loading base YOLO model: {base_model_path}")
-
-        # For demonstration, we'll create a mock merged model
-        # In real implementation, this would load and merge actual LoRA weights
-
-        print("Merging LoRA adapters...")
-        for i, lora_path in enumerate(lora_paths):
-            print(f"  - Applying LoRA {i+1}: {lora_path}")
-
-        # Create merged model file (mock)
-        merged_content = f"""# Merged YOLO Model
-Base: {base_model_path}
-LoRAs: {', '.join(lora_paths)}
-Format: PyTorch (.pt)
-Description: Combined digits and colors detection capabilities
-
-This is a placeholder for the actual merged YOLO model.
-In production, this would contain the actual merged weights.
-"""
-
-        output_path_obj = Path(output_path)
-        output_path_obj.parent.mkdir(exist_ok=True, parents=True)
-
-        with open(output_path, 'w') as f:
-            f.write(merged_content)
-
-        print(f"✓ Merged YOLO model saved to: {output_path}")
-        return {
-            "status": "success",
-            "base_model": base_model_path,
-            "lora_adapters": lora_paths,
-            "output": output_path,
-            "model_type": "YOLO"
-        }
-
-    except Exception as e:
-        raise Exception(f"YOLO merge failed: {str(e)}")
-
 
 def merge_whisper_loras(base_model_path: str, lora_paths: List[str], output_path: str) -> dict:
     """Merge Whisper LoRA adapters"""
@@ -153,13 +105,7 @@ def detect_model_type(base_model_path: str, lora_paths: List[str]) -> str:
     """Detect model type based on paths and filenames"""
     path_lower = base_model_path.lower()
 
-    if 'whisper' in path_lower or any('whisper' in str(p).lower() for p in lora_paths):
-        return 'whisper'
-    elif 'yolo' in path_lower or any('digits' in str(p).lower() or 'colors' in str(p).lower() for p in lora_paths):
-        return 'yolo'
-    else:
-        # Default to YOLO if unclear
-        return 'yolo'
+    return 'whisper'
 
 
 def main():
@@ -184,10 +130,7 @@ def main():
         print(f"Detected model type: {model_type}")
 
         # Merge LoRAs
-        if model_type == 'yolo':
-            result = merge_yolo_loras(args.base, args.lora, args.out)
-        else:  # whisper
-            result = merge_whisper_loras(args.base, args.lora, args.out)
+        result = merge_whisper_loras(args.base, args.lora, args.out)
 
         # Generate ONNX export path
         onnx_path = str(Path(args.out).with_suffix('.onnx'))

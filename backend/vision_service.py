@@ -78,12 +78,88 @@ class VisionService:
             raise Exception("YOLO model not loaded")
 
         try:
-            # Convert bytes to image and run detection
-            ultralytics = _get_ultralytics()
+            # Convert bytes to image for processing
+            import io
+            from PIL import Image
+            image = Image.open(io.BytesIO(image_data))
 
-            # This would require the heavy dependencies to be installed
-            # For now, return a mock response to test the configuration system
-            return {"detections": [], "mock": True}
+            # Mock detection based on loaded model type
+            model_type = self.model.get("type", "unknown") if isinstance(self.model, dict) else "unknown"
+            training_type = self.model.get("training_type", "unknown") if isinstance(self.model, dict) else "unknown"
+
+            # Generate mock detections based on model type
+            detections = []
+
+            if model_type == "merged" or training_type == "merged":
+                # Merged model - detect both digits and colors
+                detection_classes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'red', 'blue', 'green', 'yellow', 'orange', 'purple']
+                num_detections = 3  # Simulate detecting multiple items
+                for i in range(num_detections):
+                    class_name = detection_classes[i % len(detection_classes)]
+                    detections.append({
+                        "label": class_name,
+                        "score": 0.82 + (i * 0.03),  # Varying confidence
+                        "box": {
+                            "xMin": 50 + (i * 80),
+                            "yMin": 100 + (i * 40),
+                            "xMax": 150 + (i * 80),
+                            "yMax": 180 + (i * 40)
+                        }
+                    })
+            elif training_type == "digits":
+                # Digits model - detect only digits
+                digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+                num_detections = 2
+                for i in range(num_detections):
+                    class_name = digits[i % len(digits)]
+                    detections.append({
+                        "label": class_name,
+                        "score": 0.85 + (i * 0.02),
+                        "box": {
+                            "xMin": 60 + (i * 100),
+                            "yMin": 110,
+                            "xMax": 140 + (i * 100),
+                            "yMax": 170
+                        }
+                    })
+            elif training_type == "colors":
+                # Colors model - detect only colors
+                colors = ['red', 'blue', 'green', 'yellow', 'orange', 'purple']
+                num_detections = 2
+                for i in range(num_detections):
+                    class_name = colors[i % len(colors)]
+                    detections.append({
+                        "label": class_name,
+                        "score": 0.78 + (i * 0.04),
+                        "box": {
+                            "xMin": 70 + (i * 120),
+                            "yMin": 120,
+                            "xMax": 160 + (i * 120),
+                            "yMax": 180
+                        }
+                    })
+            else:
+                # Base model or unknown - use generic placeholders
+                generic_classes = ['object_1', 'object_2']
+                for i, class_name in enumerate(generic_classes):
+                    detections.append({
+                        "label": class_name,
+                        "score": 0.75,
+                        "box": {
+                            "xMin": 80 + (i * 140),
+                            "yMin": 130,
+                            "xMax": 170 + (i * 140),
+                            "yMax": 190
+                        }
+                    })
+
+            return {
+                "detections": detections,
+                "mock": True,
+                "model_type": model_type,
+                "training_type": training_type,
+                "total_detections": len(detections)
+            }
         except Exception as e:
             raise Exception(f"YOLO inference error: {e}")
 
@@ -568,8 +644,11 @@ class VisionService:
             raise Exception(f"LoRA training failed: {str(e)}")
 
     async def create_merged_model(self) -> dict:
-        """Create merged model from specialized LoRA adapters"""
+        """Create merged models from specialized LoRA adapters"""
         try:
+            import subprocess
+            import asyncio
+
             self.training_status = "running"
             self.training_progress = 0.0
             self.training_message = "Starting LoRA merging process..."
@@ -583,41 +662,87 @@ class VisionService:
             if not digits_lora.exists() or not colors_lora.exists():
                 raise Exception("Missing LoRA adapters. Train digits and colors models first.")
 
-            # Create merged model
+            # Create outputs
+            created_models = []
+
+            # 1. Create digits + colors merged model
             self.training_progress = 10.0
-            self.training_message = "Merging LoRA adapters..."
+            self.training_message = "Creating digits + colors merged model..."
 
-            # Mock merge command:
-            # python scripts/merge_lora.py --base base/yolov8n.pt
-            # --lora loras/digits.safetensors --lora loras/colors.safetensors
-            # --out merged/digits_colors_merged.pt
+            merged_pt_path = self.merged_dir / "digits_colors_merged.pt"
+            process = subprocess.Popen([
+                "python", "models/vision/scripts/merge_lora.py",
+                "--base", "yolov8n.pt",
+                "--lora", str(digits_lora),
+                "--lora", str(colors_lora),
+                "--out", str(merged_pt_path)
+            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
-            import asyncio
-            await asyncio.sleep(1)  # Simulate merge time
+            stdout, _ = process.communicate()
+            if process.returncode != 0:
+                raise Exception(f"Failed to create digits+colors merged model: {stdout}")
 
-            merged_model_path = self.merged_dir / "digits_colors_merged.pt"
-            with open(merged_model_path, 'w') as f:
-                f.write("# Merged YOLO model (digits + colors)\n")
+            created_models.append({
+                "name": "digits_colors_merged",
+                "pt_path": str(merged_pt_path),
+                "onnx_path": str(merged_pt_path.with_suffix('.onnx'))
+            })
 
-            self.training_progress = 80.0
-            self.training_message = "Merging complete. Exporting to ONNX..."
+            # 2. Create colors-only merged model
+            self.training_progress = 40.0
+            self.training_message = "Creating colors-only merged model..."
 
-            # Export to ONNX
-            # yolo export model=merged/yolo_merged.pt format=onnx
-            onnx_model_path = self.merged_dir / "digits_colors_merged.onnx"
-            with open(onnx_model_path, 'w') as f:
-                f.write("# ONNX export of merged model\n")
+            colors_pt_path = self.merged_dir / "colors_merged.pt"
+            process = subprocess.Popen([
+                "python", "models/vision/scripts/merge_lora.py",
+                "--base", "yolov8n.pt",
+                "--lora", str(colors_lora),
+                "--out", str(colors_pt_path)
+            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+            stdout, _ = process.communicate()
+            if process.returncode != 0:
+                raise Exception(f"Failed to create colors merged model: {stdout}")
+
+            created_models.append({
+                "name": "colors_merged",
+                "pt_path": str(colors_pt_path),
+                "onnx_path": str(colors_pt_path.with_suffix('.onnx'))
+            })
+
+            # 3. Create digits-only merged model
+            self.training_progress = 70.0
+            self.training_message = "Creating digits-only merged model..."
+
+            digits_pt_path = self.merged_dir / "digits_merged.pt"
+            process = subprocess.Popen([
+                "python", "models/vision/scripts/merge_lora.py",
+                "--base", "yolov8n.pt",
+                "--lora", str(digits_lora),
+                "--out", str(digits_pt_path)
+            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+            stdout, _ = process.communicate()
+            if process.returncode != 0:
+                raise Exception(f"Failed to create digits merged model: {stdout}")
+
+            created_models.append({
+                "name": "digits_merged",
+                "pt_path": str(digits_pt_path),
+                "onnx_path": str(digits_pt_path.with_suffix('.onnx'))
+            })
 
             self.training_progress = 100.0
-            self.training_message = "Merged model creation completed!"
+            self.training_message = "All merged models created successfully!"
             self.training_status = "success"
 
             return {
                 "status": "success",
-                "merged_model_path": str(merged_model_path),
-                "onnx_model_path": str(onnx_model_path),
+                "created_models": created_models,
+                "total_models": len(created_models),
                 "base_model": "yolov8n.pt",
-                "lora_adapters": ["digits.safetensors", "colors.safetensors"]
+                "lora_adapters_used": ["digits.safetensors", "colors.safetensors"],
+                "message": f"Created {len(created_models)} merged models: digits+colors, colors-only, digits-only"
             }
 
         except Exception as e:
@@ -870,6 +995,12 @@ class VisionService:
                     "path": "/reset-model",
                     "methods": ["POST"],
                     "handler": "reset_model_endpoint"
+                },
+                {
+                    "path": "/detect",
+                    "methods": ["POST"],
+                    "handler": "detect_objects_endpoint",
+                    "params": ["file: UploadFile"]
                 },
                 {
                     "path": "/train-digits-lora",

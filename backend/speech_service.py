@@ -33,11 +33,11 @@ def _get_librosa():
 class SpeechService:
     """Service for handling Whisper speech recognition functionality"""
 
-    def __init__(self, models_dir: str = "whisper_models", data_dir: str = "whisper_data"):
+    def __init__(self, models_dir: str = "models/speech", data_dir: str = "data/speech"):
         self.models_dir = Path(models_dir)
         self.data_dir = Path(data_dir)
-        self.models_dir.mkdir(exist_ok=True)
-        self.data_dir.mkdir(exist_ok=True)
+        self.models_dir.mkdir(exist_ok=True, parents=True)
+        self.data_dir.mkdir(exist_ok=True, parents=True)
 
         # Create consistent subdirectory structure like YOLO
         self.processed_dir = self.data_dir / "processed"
@@ -45,8 +45,8 @@ class SpeechService:
         self.processed_dir.mkdir(exist_ok=True)
         self.train_dir.mkdir(exist_ok=True)
 
-        # Configure cache directory for Whisper models (doesn't work, use download_root instead)
-        whisper_cache_dir = self.models_dir
+        # Configure cache directory for Whisper models
+        whisper_cache_dir = self.models_dir / "merged"
         os.environ['WHISPER_CACHE_DIR'] = str(whisper_cache_dir)
 
         self.model = None
@@ -268,7 +268,7 @@ class SpeechService:
             print("Setting up training environment...")
             from transformers import TrainingArguments, Trainer
 
-            output_dir = output_dir or self.models_dir / f"whisper-lora-{language}"
+            output_dir = output_dir or self.models_dir / f"speech_{language}"
             output_dir = Path(output_dir)
             output_dir.mkdir(exist_ok=True)
 
