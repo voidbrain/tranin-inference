@@ -1,0 +1,37 @@
+services:
+  frontend:
+    build:
+      context: ./frontend/traninging
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4223:4223"
+    volumes:
+      - ./frontend/traninging:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /root/.cache/torch   # Cache PyTorch models
+    networks:
+      - app-network
+    restart: unless-stopped
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+
+networks:
+  app-network:
+    driver: bridge

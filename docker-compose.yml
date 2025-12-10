@@ -1,0 +1,41 @@
+services:
+  frontend:
+    build:
+      context: ./frontend/traninging
+      dockerfile: Dockerfile
+    ports:
+      - "4223:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/app/data
+      - backend_models:/app/models
+      - backend_logs:/app/train_logs
+    networks:
+      - app-network
+    restart: unless-stopped
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  backend_data:
+    driver: local
+  backend_models:
+    driver: local
+  backend_logs:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
