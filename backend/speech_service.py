@@ -3,15 +3,32 @@ Whisper Service for Speech Recognition
 Handles speech transcription and audio processing
 """
 import os
-import shutil
 import tempfile
 import datetime
+import shutil
 from pathlib import Path
 from fastapi import UploadFile
-import whisper
-import torch
-import librosa
-import numpy as np
+
+# Lazy imports - loaded on first use to avoid import errors during configuration
+_whisper = None
+_librosa = None
+
+def _import_ml_libraries():
+    """Lazy import of ML libraries"""
+    global _whisper, _librosa
+    if _whisper is None:
+        import whisper
+        import librosa
+        _whisper = whisper
+        _librosa = librosa
+
+def _get_whisper():
+    _import_ml_libraries()
+    return _whisper
+
+def _get_librosa():
+    _import_ml_libraries()
+    return _librosa
 
 class SpeechService:
     """Service for handling Whisper speech recognition functionality"""
@@ -24,7 +41,7 @@ class SpeechService:
 
         # Create consistent subdirectory structure like YOLO
         self.processed_dir = self.data_dir / "processed"
-        self.train_dir = self.data_dir / "train"
+        self.train_dir = self.data_dir / "waiting"
         self.processed_dir.mkdir(exist_ok=True)
         self.train_dir.mkdir(exist_ok=True)
 
@@ -43,13 +60,14 @@ class SpeechService:
         self.training_start_time = None
         self.training_language = None
 
-        self._load_model()
+        # Lazy loading - model will be loaded on first use
         self._load_lora_adapter_if_available()  # Try to load latest LoRA adapter if available
 
     def _load_model(self):
         """Load Whisper model, downloading if necessary"""
         try:
             print("Loading Whisper model (tiny)...")
+            whisper = _get_whisper()
             self.model = whisper.load_model("tiny")
             print("Whisper model loaded successfully")
         except Exception as e:
@@ -70,6 +88,7 @@ class SpeechService:
         try:
             # Load audio with proper preprocessing
             # Whisper expects 16kHz mono audio
+            librosa = _get_librosa()
             audio_array, _ = librosa.load(temp_file_path, sr=16000, mono=True)
 
             # Run transcription
@@ -496,3 +515,177 @@ class SpeechService:
                 "available_languages": [],
                 "data_directory": str(self.data_dir)
             }
+
+    # ===== SPEECH-SPECIFIC ENDPOINT METHODS =====
+    # These methods wrap the service functionality for API endpoints
+
+    async def transcribe_audio_endpoint(self, audio_file: "UploadFile") -> dict:
+        """API endpoint wrapper for transcribing audio files"""
+        return await self.transcribe_audio(audio_file)
+
+    def get_whisper_status_endpoint(self) -> dict:
+        """API endpoint wrapper for getting Whisper service status"""
+        return self.get_status()
+
+    def get_speech_training_count_endpoint(self) -> dict:
+        """API endpoint wrapper for getting count of speech training samples"""
+        try:
+            speech_files = list(self.data_dir.glob("*.wav"))
+            return {"count": len(speech_files), "message": "Speech training data count"}
+        except Exception as e:
+            return {"error": str(e), "count": 0}
+
+    def get_whisper_training_status_endpoint(self) -> dict:
+        """API endpoint wrapper for getting Whisper training status"""
+        return self.get_training_status()
+
+    def get_whisper_training_status_details_endpoint(self) -> dict:
+        """API endpoint wrapper for getting detailed Whisper training status"""
+        return self.get_training_status_details()
+
+    async def start_whisper_lora_fine_tuning_endpoint(self, request: "TrainingRequest", background_tasks: "BackgroundTasks") -> dict:
+        """API endpoint wrapper for starting LoRA fine-tuning"""
+        from fastapi import HTTPException
+
+        try:
+            # Check if we have training data
+            status = self.get_training_status()
+            if status.get("training_samples", 0) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No speech training data found. Upload audio samples first."
+                )
+
+            # Determine language (use first available language from data)
+            language = status.get("available_languages", ["en"])[0] if status.get("available_languages") else "en"
+
+            # Start LoRA fine-tuning in background
+            background_tasks.add_task(
+                self.fine_tune_lora,
+                language=language,
+                epochs=request.epochs,
+                output_dir=f"whisper_models/whisper-lora-{language}"
+            )
+
+            return {
+                "message": f"Whisper LoRA fine-tuning started for language: {language}",
+                "language": language,
+                "epochs": request.epochs,
+                "status": "background_processing"
+            }
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def load_whisper_lora_adapter_endpoint(self, adapter_path: str) -> dict:
+        """API endpoint wrapper for loading a Whisper LoRA adapter"""
+        from fastapi import HTTPException
+
+        try:
+            success = self.load_lora_adapter(adapter_path, "unknown")
+            if success:
+                return {"message": "LoRA adapter loaded successfully", "adapter_path": adapter_path}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to load LoRA adapter")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error loading LoRA adapter: {str(e)}")
+
+    async def upload_speech_training_data_endpoint(self, audio_file: "UploadFile", language: str, transcript: str) -> dict:
+        """API endpoint wrapper for uploading speech training data"""
+        from fastapi import HTTPException
+
+        try:
+            # Read the audio file
+            audio_bytes = await audio_file.read()
+
+            # Process and store the speech training data
+            result = await self.process_speech_training_data(
+                audio_bytes, language, transcript
+            )
+
+            return {
+                "message": "Speech training data uploaded successfully",
+                "audio_path": result["audio_path"],
+                "transcript_path": result["transcript_path"],
+                "language": result["language"]
+            }
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Speech training data upload failed: {str(e)}")
+
+    @classmethod
+    def get_service_config(cls):
+        """Return the service configuration with endpoints and database schema"""
+        return {
+            "database_schema": {
+                "tables": {
+                    "annotations": """
+                        CREATE TABLE IF NOT EXISTS annotations (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            filename TEXT NOT NULL,
+                            data TEXT NOT NULL,
+                            labels TEXT NOT NULL,
+                            timestamp TEXT NOT NULL
+                        )
+                    """,
+                    "training_logs": """
+                        CREATE TABLE IF NOT EXISTS training_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            timestamp TEXT NOT NULL,
+                            epoch INTEGER,
+                            accuracy REAL,
+                            loss REAL,
+                            val_accuracy REAL,
+                            val_loss REAL,
+                            metadata TEXT
+                        )
+                    """
+                }
+            },
+            "endpoints": [
+                {
+                    "path": "/speech/transcribe",
+                    "methods": ["POST"],
+                    "handler": "transcribe_audio_endpoint",
+                    "params": ["audio_file: UploadFile"]
+                },
+                {
+                    "path": "/speech/upload-training",
+                    "methods": ["POST"],
+                    "handler": "upload_speech_training_data_endpoint",
+                    "params": ["audio_file: UploadFile", "language: str", "transcript: str"]
+                },
+                {
+                    "path": "/speech/status",
+                    "methods": ["GET"],
+                    "handler": "get_whisper_status_endpoint"
+                },
+                {
+                    "path": "/speech/training-count",
+                    "methods": ["GET"],
+                    "handler": "get_speech_training_count_endpoint"
+                },
+                {
+                    "path": "/speech/training-status",
+                    "methods": ["GET"],
+                    "handler": "get_whisper_training_status_endpoint"
+                },
+                {
+                    "path": "/speech/training-status-details",
+                    "methods": ["GET"],
+                    "handler": "get_whisper_training_status_details_endpoint"
+                },
+                {
+                    "path": "/speech/lora-fine-tune",
+                    "methods": ["POST"],
+                    "handler": "start_whisper_lora_fine_tuning_endpoint",
+                    "params": ["request: TrainingRequest", "background_tasks: BackgroundTasks"]
+                },
+                {
+                    "path": "/speech/load-lora-adapter",
+                    "methods": ["POST"],
+                    "handler": "load_whisper_lora_adapter_endpoint",
+                    "params": ["adapter_path: str"]
+                }
+            ]
+        }

@@ -1,12 +1,12 @@
 services:
   frontend:
     build:
-      context: ./frontend/traninging
+      context: ./frontend
       dockerfile: Dockerfile.dev
     ports:
       - "4223:4223"
     volumes:
-      - ./frontend/traninging:/app
+      - ./frontend:/app
       - /app/node_modules
     environment:
       - CHOKIDAR_USEPOLLING=true

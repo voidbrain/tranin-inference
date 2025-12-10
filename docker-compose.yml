@@ -1,7 +1,7 @@
 services:
   frontend:
     build:
-      context: ./frontend/traninging
+      context: ./frontend
       dockerfile: Dockerfile
     ports:
       - "4223:80"

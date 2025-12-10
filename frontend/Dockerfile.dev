@@ -1,0 +1,18 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Expose port (inside container port that matches docker-compose mapping)
+EXPOSE 4223
+
+# Start development server on port 4223 inside container (maps to host port 4223)
+CMD ["npx", "ng", "serve", "--host", "0.0.0.0", "--port", "4223", "--poll", "500", "--hmr"]
