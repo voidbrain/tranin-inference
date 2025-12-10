@@ -53,8 +53,19 @@ export class See implements AfterViewInit, OnDestroy {
   // Tab navigation
   activeTab = signal('detect');
 
-  // Detection mode
-  detectionMode = signal<'digits' | 'colors'>('digits');
+  // Detection mode - need getter/setter for ngModel compatibility with signals
+  private _detectionMode = signal<'digits' | 'colors'>('digits');
+
+  get detectionMode(): string {
+    return this._detectionMode();
+  }
+
+  set detectionMode(value: 'digits' | 'colors') {
+    this._detectionMode.set(value);
+    // When mode changes, update border styles immediately
+    this.drawDetections();
+    this.loadAvailableTags();
+  }
 
   // Available tags for quick selection - now loaded from backend
   availableTags = signal<string[]>([]);
@@ -62,12 +73,12 @@ export class See implements AfterViewInit, OnDestroy {
   // Method to load tags from backend based on detection mode
   async loadAvailableTags() {
     try {
-      const response = await this.http.get<any>(`http://backend:8000/tags/${this.detectionMode()}`).toPromise();
+      const response = await this.http.get<any>(`http://backend:8000/tags/${this._detectionMode()}`).toPromise();
       this.availableTags.set(response.tags);
     } catch (error) {
       console.warn('Failed to load tags from backend:', error);
       // Fallback to hardcoded if backend unavailable
-      const fallbackTags = this.detectionMode() === 'digits'
+      const fallbackTags = this._detectionMode() === 'digits'
         ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
         : ['red', 'blue', 'green', 'yellow', 'orange', 'purple'];
       this.availableTags.set(fallbackTags);
@@ -317,7 +328,7 @@ export class See implements AfterViewInit, OnDestroy {
       // Draw box
       ctx.strokeStyle = '#00FF00';
       ctx.lineWidth = 2;
-      if (this.detectionMode() === 'colors') {
+      if (this.detectionMode === 'colors') {
         ctx.setLineDash([5, 5]); // Dashed line for colors
       } else {
         ctx.setLineDash([]); // Solid line for digits
