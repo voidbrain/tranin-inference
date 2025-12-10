@@ -74,7 +74,7 @@ export class See implements AfterViewInit, OnDestroy {
   // Method to load tags from backend based on detection mode
   async loadAvailableTags() {
     try {
-      const response = await this.http.get<any>(`${this.backendUrl}/tags/${this._detectionMode()}`).toPromise();
+      const response = await this.http.get<any>(`${this.backendUrl}/vision/tags/${this._detectionMode()}`).toPromise();
       this.availableTags.set(response.tags);
     } catch (error) {
       console.warn('Failed to load tags from backend:', error);
@@ -121,7 +121,7 @@ export class See implements AfterViewInit, OnDestroy {
 
     try {
       if (modelType === 'base') {
-        await this.http.post(`${this.backendUrl}/reset-model`, {}).toPromise();
+        await this.http.post(`${this.backendUrl}/vision/reset-model`, {}).toPromise();
         this.status.set('Using base YOLO model for detection');
     } else {
       // Load LoRA adapter or merged model
@@ -281,66 +281,59 @@ export class See implements AfterViewInit, OnDestroy {
   }
 
   async detectObjects() {
-    if (!this.yoloPipeline || !this.isCameraActive() || !this.videoElement) return;
+    if (!this.isCameraActive() || !this.videoElement) return;
 
     this.isDetecting.set(true);
     this.status.set('Capturing image and detecting objects...');
 
     try {
-      // Capture the current video frame BEFORE running detection
+      // Capture the current video frame
       const captureCanvas = document.createElement('canvas');
       captureCanvas.width = this.videoElement.nativeElement.videoWidth;
       captureCanvas.height = this.videoElement.nativeElement.videoHeight;
       const captureCtx = captureCanvas.getContext('2d')!;
       captureCtx.drawImage(this.videoElement.nativeElement, 0, 0);
 
-      // Store the captured frame
-      const capturedFrameData = captureCanvas.toDataURL('image/jpeg');
-      console.log('Captured frame data length:', capturedFrameData.length);
-      console.log('Captured frame data starts with:', capturedFrameData.substring(0, 50));
+      // Convert canvas to blob for FormData upload
+      const imageBlob = await new Promise<Blob>((resolve) => {
+        captureCanvas.toBlob((blob) => {
+          resolve(blob!);
+        }, 'image/jpeg', 0.95);
+      });
 
+      // Store the captured frame for display
+      const capturedFrameData = captureCanvas.toDataURL('image/jpeg');
       this.capturedImage.set(capturedFrameData);
-      console.log('Set capturedImage signal, current value starts with:', this.capturedImage().substring(0, 50));
 
       // Stop the camera stream and switch to static image mode
       this.stopCameraStream();
-      this.showStaticImage.set(true); // Show captured image instead of video
+      this.showStaticImage.set(true);
 
-      console.log('Set showStaticImage to true, should display static image now');
+      // Create FormData to send image to backend
+      const formData = new FormData();
+      formData.append('file', imageBlob, 'captured_image.jpg');
 
-      // Update status to reflect stream is stopped but working on image
-      this.status.set('detection-finished-stream-paused');
+      // Call backend detection API
+      this.status.set('Sending image to backend for detection...');
+      const response: any = await this.http.post(`${this.backendUrl}/vision/detect`, formData).toPromise();
 
-      // Convert to image data for processing
-      const imageData = captureCtx.getImageData(0, 0, captureCanvas.width, captureCanvas.height);
-
-      // Run detection - handle both real pipeline and mock
-      let result;
-      if (this.yoloPipeline.mock) {
-        // Mock pipeline
-        result = await this.yoloPipeline.detect(imageData);
-      } else {
-        // Real transformers pipeline
-        result = await this.yoloPipeline(imageData);
-      }
-
-      // Process results
-      const detectionResults = result.map((detection: any, index: number) => ({
-        label: this.getLabelName(detection.label),
+      // Process backend response
+      const detectionResults = response.detections.map((detection: any, index: number) => ({
+        label: detection.label,
         confidence: Math.round(detection.score * 100),
-        x: detection.box.xMin,
-        y: detection.box.yMin,
-        width: detection.box.xMax - detection.box.xMin,
-        height: detection.box.yMax - detection.box.yMin,
+        x: Math.round(detection.box.xMin),
+        y: Math.round(detection.box.yMin),
+        width: Math.round(detection.box.xMax - detection.box.xMin),
+        height: Math.round(detection.box.yMax - detection.box.yMin),
         id: this.nextId++,
-        mode: this._detectionMode() // Store the mode this detection was created with
+        mode: this._detectionMode()
       }));
 
       this.detections.set(detectionResults);
       this.drawDetections();
-      this.status.set(`Detected ${detectionResults.length} objects (on captured image)`);
+      this.status.set(`Detected ${detectionResults.length} objects using ${this.getModelStatusText()}`);
     } catch (error) {
-      console.error('Error detecting objects:', error);
+      console.error('Backend detection error:', error);
       this.status.set('Detection failed: ' + (error as Error).message);
     } finally {
       this.isDetecting.set(false);
@@ -411,7 +404,7 @@ export class See implements AfterViewInit, OnDestroy {
         }))
       };
 
-      const response = await this.http.post(`${this.backendUrl}/upload-training-data`, trainingData).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/vision/upload-training-data`, trainingData).toPromise();
       console.log('Backend response:', response);
       this.status.set('Data uploaded successfully. Training can now be initiated.');
 
@@ -436,7 +429,7 @@ export class See implements AfterViewInit, OnDestroy {
         }))
       };
 
-      const response = await this.http.post(`${this.backendUrl}/upload-specialized-training-data`, specializedData).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/vision/upload-specialized-training-data`, specializedData).toPromise();
       console.log(`Specialized ${trainingType} backend response:`, response);
       this.status.set(`${trainingType.charAt(0).toUpperCase() + trainingType.slice(1)} training data uploaded successfully.`);
 
@@ -468,7 +461,7 @@ export class See implements AfterViewInit, OnDestroy {
         learning_rate: this.loraLearningRate()
       };
 
-      const response = await this.http.post(`${this.backendUrl}/train-lora-specialized`, loraRequest).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/vision/train-lora-specialized`, loraRequest).toPromise();
       console.log(`LoRA training started for ${trainingType}:`, response);
 
       this.trainingSuccess.set(`LoRA training started for ${trainingType}! Check training logs for progress.`);
@@ -486,7 +479,7 @@ export class See implements AfterViewInit, OnDestroy {
 
   async loadSpecializedCount(trainingType: 'digits' | 'colors') {
     try {
-      const response: any = await this.http.get(`${this.backendUrl}/specialized-training-count/${trainingType}`).toPromise();
+      const response: any = await this.http.get(`${this.backendUrl}/vision/specialized-training-count/${trainingType}`).toPromise();
       return response.count || 0;
     } catch (error) {
       console.error(`Failed to load ${trainingType} count:`, error);
@@ -499,7 +492,7 @@ export class See implements AfterViewInit, OnDestroy {
       this.trainingError.set(null);
       this.trainingSuccess.set(null);
 
-      const response = await this.http.post(`${this.backendUrl}/load-lora-adapter`, {
+      const response = await this.http.post(`${this.backendUrl}/vision/load-lora-adapter`, {
         training_type: trainingType
       }).toPromise();
 
@@ -764,7 +757,7 @@ export class See implements AfterViewInit, OnDestroy {
 
   async loadTrainingStatus() {
     try {
-      const response: any = await this.http.get(`${this.backendUrl}/training-queue-status`).toPromise();
+      const response: any = await this.http.get(`${this.backendUrl}/vision/training-queue-status`).toPromise();
       this.trainingStatus.set(response);
     } catch (error) {
       console.error('Failed to load training queue status:', error);
@@ -785,7 +778,7 @@ export class See implements AfterViewInit, OnDestroy {
       this.trainingError.set(null);
       this.trainingSuccess.set(null);
 
-      const response = await this.http.post(`${this.backendUrl}/reset-model`, {}).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/vision/reset-model`, {}).toPromise();
       console.log('Model reset:', response);
 
       this.trainingSuccess.set("Model reset to base YOLOv8n successfully!");
@@ -816,7 +809,7 @@ export class See implements AfterViewInit, OnDestroy {
         learning_rate: this.learning_rate()
       };
 
-      const response = await this.http.post(`${this.backendUrl}/train`, trainingRequest).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/vision/train`, trainingRequest).toPromise();
       console.log('Training started:', response);
 
       this.trainingSuccess.set("Training started successfully! Check training logs for progress.");
@@ -843,7 +836,7 @@ export class See implements AfterViewInit, OnDestroy {
 
   async loadTrainingLogs() {
     try {
-      const response: any = await this.http.get(`${this.backendUrl}/training-logs`).toPromise();
+      const response: any = await this.http.get(`${this.backendUrl}/vision/training-logs`).toPromise();
       this.trainingLogs.set(response.logs || []);
     } catch (error) {
       console.error('Failed to load training logs:', error);
@@ -879,7 +872,7 @@ export class See implements AfterViewInit, OnDestroy {
     // Poll every 3 seconds for training status updates
     this.trainingStatusPollingInterval.set(setInterval(async () => {
       try {
-        const response: any = await this.http.get(`${this.backendUrl}/training-logs`).toPromise();
+        const response: any = await this.http.get(`${this.backendUrl}/vision/training-logs`).toPromise();
         const logs = response.logs || [];
         this.trainingLogs.set(logs);
 

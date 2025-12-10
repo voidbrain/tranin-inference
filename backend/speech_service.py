@@ -901,18 +901,7 @@ class SpeechService:
                 }
             },
             "endpoints": [
-                {
-                    "path": "/speech/transcribe",
-                    "methods": ["POST"],
-                    "handler": "transcribe_audio_endpoint",
-                    "params": ["audio_file: UploadFile"]
-                },
-                {
-                    "path": "/speech/upload-training",
-                    "methods": ["POST"],
-                    "handler": "upload_speech_training_data_endpoint",
-                    "params": ["audio_file: UploadFile", "language: str", "transcript: str"]
-                },
+
                 {
                     "path": "/speech/status",
                     "methods": ["GET"],
@@ -922,11 +911,6 @@ class SpeechService:
                     "path": "/speech/training-count",
                     "methods": ["GET"],
                     "handler": "get_speech_training_count_endpoint"
-                },
-                {
-                    "path": "/speech-training-count",
-                    "methods": ["GET"],
-                    "handler": "speech_training_count_endpoint"
                 },
                 {
                     "path": "/speech/training-status",
@@ -968,25 +952,25 @@ class SpeechService:
                     "handler": "get_merged_model_status_endpoint"
                 },
                 {
-                    "path": "/transcribe-audio",
+                    "path": "/speech/transcribe-audio",
                     "methods": ["POST"],
                     "handler": "transcribe_audio_endpoint",
                     "params": ["audio_file: UploadFile", "language: str"]
                 },
                 {
-                    "path": "/upload-speech-training-data",
+                    "path": "/speech/upload-speech-training-data",
                     "methods": ["POST"],
                     "handler": "upload_speech_training_data_endpoint_alt",
                     "params": ["audio_file: UploadFile", "language: str", "transcript: str"]
                 },
                 {
-                    "path": "/whisper-fine-tune-lora",
+                    "path": "/speech/whisper-fine-tune-lora",
                     "methods": ["POST"],
                     "handler": "whisper_fine_tune_lora_endpoint",
                     "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
                 },
                 {
-                    "path": "/whisper-training-status-details",
+                    "path": "/speech/whisper-training-status-details",
                     "methods": ["GET"],
                     "handler": "whisper_training_status_details_endpoint"
                 }

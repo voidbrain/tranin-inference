@@ -241,7 +241,7 @@ export class Listen implements OnInit, OnDestroy {
       const filename = `audio_${Date.now()}.wav`;
       formData.append('audio', this.audioBlob, filename);
 
-      const response = await this.http.post<{transcription: string}>(`${this.backendUrl}/transcribe-audio`, formData).toPromise();
+      const response = await this.http.post<{transcription: string}>(`${this.backendUrl}/speech/transcribe-audio`, formData).toPromise();
 
       this.transcript = response?.transcription || 'Transcription failed';
       this.status = 'Transcription complete';
@@ -270,7 +270,7 @@ export class Listen implements OnInit, OnDestroy {
       formData.append('language', this.selectedLanguage);
       formData.append('transcript', this.transcript);
 
-      const response = await this.http.post(`${this.backendUrl}/upload-speech-training-data`, formData).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/speech/upload-speech-training-data`, formData).toPromise();
 
       this.status = 'Audio uploaded for speech training';
       this.showMessage('Audio uploaded for training successfully!', 'success');
@@ -297,7 +297,7 @@ export class Listen implements OnInit, OnDestroy {
         use_lora: true // Always use LoRA for speech training
       };
 
-      const response = await this.http.post(`${this.backendUrl}/whisper-fine-tune-lora`, trainingRequest).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/speech/whisper-fine-tune-lora`, trainingRequest).toPromise();
 
       this.status = 'LoRA training started in background';
       this.showMessage('Whisper LoRA fine-tuning has started! Check logs for progress.', 'success');
@@ -318,7 +318,7 @@ export class Listen implements OnInit, OnDestroy {
     // Poll every 2 seconds for training status updates
     this.trainingIntervalId = setInterval(async () => {
       try {
-        const response = await this.http.get(`${this.backendUrl}/whisper-training-status-details`).toPromise();
+        const response = await this.http.get(`${this.backendUrl}/speech/whisper-training-status-details`).toPromise();
         const status: any = response;
 
         this.trainingStatus = status.status;
@@ -362,7 +362,7 @@ export class Listen implements OnInit, OnDestroy {
   private async updateTrainingDataCount() {
     try {
       // For now, just show a static count until we implement the speech training backend
-      const response = await this.http.get<{count: number}>(`${this.backendUrl}/speech-training-count`).toPromise();
+      const response = await this.http.get<{count: number}>(`${this.backendUrl}/speech/training-count`).toPromise();
       this.trainingDataCount = response?.count || 0;
     } catch {
       this.trainingDataCount = 0;

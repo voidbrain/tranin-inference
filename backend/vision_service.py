@@ -887,12 +887,11 @@ class VisionService:
         """API endpoint wrapper for getting merged model status"""
         return self.get_merged_model_status()
 
-    async def train_lora_specialized_endpoint(self, training_data: dict, background_tasks: "BackgroundTasks") -> dict:
+    async def train_lora_specialized_endpoint(self, training_type: str, background_tasks: "BackgroundTasks") -> dict:
         """API endpoint wrapper for specialized LoRA training (frontend expects this endpoint)"""
         from fastapi import HTTPException
 
         try:
-            training_type = training_data.get("training_type")
             if training_type not in ["digits", "colors"]:
                 raise HTTPException(status_code=400, detail="Invalid training type")
 
@@ -953,7 +952,7 @@ class VisionService:
             },
             "endpoints": [
                 {
-                    "path": "/tags/{detection_mode}",
+                    "path": "/vision/tags/{detection_mode}",
                     "methods": ["GET"],
                     "handler": "get_tags_endpoint",
                     "params": ["detection_mode: str"]
@@ -964,81 +963,71 @@ class VisionService:
                     "handler": "get_model_status_endpoint"
                 },
                 {
-                    "path": "/upload-training-data",
+                    "path": "/vision/upload-training-data",
                     "methods": ["POST"],
                     "handler": "upload_training_data_endpoint",
                     "params": ["training_data: dict"]
                 },
                 {
-                    "path": "/upload-specialized-training-data",
-                    "methods": ["POST"],
-                    "handler": "upload_specialized_training_data_endpoint",
-                    "params": ["training_data: dict"]
-                },
-                {
-                    "path": "/specialized-training-count/{training_type}",
+                    "path": "/vision/specialized-training-count/{training_type}",
                     "methods": ["GET"],
                     "handler": "get_specialized_training_count_endpoint",
                     "params": ["training_type: str"]
                 },
                 {
-                    "path": "/training-queue-status",
+                    "path": "/vision/training-queue-status",
                     "methods": ["GET"],
                     "handler": "get_training_queue_status_endpoint"
                 },
                 {
-                    "path": "/training-logs",
+                    "path": "/vision/training-logs",
                     "methods": ["GET"],
                     "handler": "get_training_logs_endpoint"
                 },
                 {
-                    "path": "/reset-model",
+                    "path": "/vision/reset-model",
                     "methods": ["POST"],
                     "handler": "reset_model_endpoint"
                 },
                 {
-                    "path": "/detect",
+                    "path": "/vision/detect",
                     "methods": ["POST"],
                     "handler": "detect_objects_endpoint",
                     "params": ["file: UploadFile"]
                 },
                 {
-                    "path": "/train-digits-lora",
+                    "path": "/vision/train-digits-lora",
                     "methods": ["POST"],
                     "handler": "train_digits_lora_endpoint",
                     "params": ["background_tasks: BackgroundTasks"]
                 },
                 {
-                    "path": "/train-colors-lora",
+                    "path": "/vision/train-colors-lora",
                     "methods": ["POST"],
                     "handler": "train_colors_lora_endpoint",
                     "params": ["background_tasks: BackgroundTasks"]
                 },
                 {
-                    "path": "/create-merged-model",
+                    "path": "/vision/create-merged-model",
                     "methods": ["POST"],
                     "handler": "create_merged_model_endpoint",
                     "params": ["background_tasks: BackgroundTasks"]
                 },
+
                 {
-                    "path": "/merged-model-status",
-                    "methods": ["GET"],
-                    "handler": "get_merged_model_status_endpoint"
-                },
-                {
-                    "path": "/train-lora-specialized",
+                    "path": "/vision/train-lora-specialized",
                     "methods": ["POST"],
                     "handler": "train_lora_specialized_endpoint",
-                    "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
+                    "params": ["type: str", "background_tasks: BackgroundTasks"]
                 },
                 {
-                    "path": "/load-lora-adapter",
+                    "path": "/vision/load-lora-adapter",
                     "methods": ["POST"],
                     "handler": "load_lora_adapter_endpoint",
                     "params": ["training_data: dict"]
                 },
                 {
-                    "path": "/train",
+                    "path": "/vision/train",
                     "methods": ["POST"],
                     "handler": "train_endpoint",
                     "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
