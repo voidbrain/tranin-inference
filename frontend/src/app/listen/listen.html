@@ -6,6 +6,10 @@
     <h3>🌐 Language Selection:</h3>
     <div class="radio-group">
       <label class="radio-option">
+        <input type="radio" name="language" value="multi" [(ngModel)]="selectedLanguage">
+        <span>🏳️ Multilingual (EN + IT)</span>
+      </label>
+      <label class="radio-option">
         <input type="radio" name="language" value="en" [(ngModel)]="selectedLanguage">
         <span>🇺🇸 English</span>
       </label>
@@ -99,7 +103,7 @@
           <strong>Whisper Model:</strong> {{ whisperStatus }}
         </div>
         <div class="status-item">
-          <strong>Language:</strong> {{ selectedLanguage === 'en' ? 'English' : 'Italian' }}
+          <strong>Language:</strong> {{ getLanguageDisplayName(selectedLanguage) }}
         </div>
         <div class="status-item">
           <strong>Status:</strong> {{ status }}

@@ -17,13 +17,23 @@ export class Listen implements OnInit, OnDestroy {
     : 'http://backend:8000';
 
   // Language and recording state
-  selectedLanguage = 'en';
+  selectedLanguage = 'multi'; // Default to multilingual
   isRecording = false;
   transcript = '';
   status = 'Ready';
   whisperStatus = 'Backend-powered';
   lastMessage = '';
   lastMessageType: 'success' | 'error' | '' = '';
+
+  // Add language mapping for UI display
+  getLanguageDisplayName(langCode: string): string {
+    const names: { [key: string]: string } = {
+      'en': 'English',
+      'it': 'Italian',
+      'multi': 'Multilingual'
+    };
+    return names[langCode] || langCode;
+  }
 
   // Audio state
   audioBlob: Blob | null = null;
@@ -129,10 +139,17 @@ export class Listen implements OnInit, OnDestroy {
         this.showMessage('Recording error occurred', 'error');
       };
 
+      // MediaRecorder should now be recording
       this.mediaRecorder.start(100); // Collect data every 100ms
-      this.isRecording = true;
-      this.status = 'Recording... (Click Stop when done)';
-      this.clearMessages();
+
+      // At this point MediaRecorder is successfully started
+      // Wrap in setTimeout to ensure Angular detects the changes
+      setTimeout(() => {
+        this.isRecording = true;
+        this.isStartingRecording = false; // Recording has actually started
+        this.status = 'Recording... (Click Stop when done)';
+        this.clearMessages();
+      }, 0);
 
     } catch (error) {
       console.error('Recording error:', error);

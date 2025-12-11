@@ -193,7 +193,6 @@ class VisionService:
             return {
                 "digitDetections": digit_detections,
                 "colorDetections": color_detections,
-                "allDetections": digit_detections + color_detections,  # For backward compatibility
                 "mock": use_mock,
                 "model_type": model_type,
                 "training_type": training_type,

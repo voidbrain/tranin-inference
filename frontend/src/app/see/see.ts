@@ -353,8 +353,8 @@ export class See implements AfterViewInit, OnDestroy {
       this.status.set('Sending image to backend for detection...');
       const response: any = await this.http.post(`${this.backendUrl}/vision/detect`, formData).toPromise();
 
-      // Process backend response - REPLACE existing detections for fresh analysis
-      const newDetectionResults = response.detections.map((detection: any, index: number) => ({
+      // Process backend response with separate digit/color detections
+      const digitDetections = (response.digitDetections || []).map((detection: any) => ({
         label: detection.label,
         confidence: Math.round(detection.score * 100),
         x: Math.round(detection.box.xMin),
@@ -362,13 +362,27 @@ export class See implements AfterViewInit, OnDestroy {
         width: Math.round(detection.box.xMax - detection.box.xMin),
         height: Math.round(detection.box.yMax - detection.box.yMin),
         id: this.nextId++,
-        mode: this._detectionMode()
+        mode: 'digits' // Digits always get solid lines
       }));
+
+      const colorDetections = (response.colorDetections || []).map((detection: any) => ({
+        label: detection.label,
+        confidence: Math.round(detection.score * 100),
+        x: Math.round(detection.box.xMin),
+        y: Math.round(detection.box.yMin),
+        width: Math.round(detection.box.xMax - detection.box.xMin),
+        height: Math.round(detection.box.yMax - detection.box.yMin),
+        id: this.nextId++,
+        mode: 'colors' // Colors always get dashed lines
+      }));
+
+      // Combine both arrays for the final detections (workaround since frontend expects single array)
+      const newDetectionResults = [...digitDetections, ...colorDetections];
 
       // Replace existing detections for fresh analysis instead of accumulating
       this.detections.set(newDetectionResults);
       this.drawDetections();
-      this.status.set(`Detected ${newDetectionResults.length} objects using ${this.getModelStatusText()}`);
+      this.status.set(`Detected ${response.digital_count || 0} digits, ${response.color_count || 0} colors using ${this.getModelStatusText()} (Real Model: ${!response.mock})`);
     } catch (error) {
       console.error('Backend detection error:', error);
       this.status.set('Detection failed: ' + (error as Error).message);

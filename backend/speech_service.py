@@ -345,9 +345,41 @@ class SpeechService:
             raise Exception(f"LoRA fine-tuning failed: {str(e)}")
 
     def _load_lora_adapter_if_available(self):
-        """Try to load the most recent LoRA adapter if available"""
+        """Try to load the most recent merged model if available"""
         try:
-            # Look for LORA model directories
+            # First try to load multilingual model if available
+            multilang_file = self.merged_dir / "speech_multilang.pt"
+            if multilang_file.exists():
+                print(f"Auto-loading multilingual merged model: {multilang_file}")
+                success = self.load_lora_adapter(str(multilang_file), "multilingual")
+                if success:
+                    self.using_lora = True
+                    print(f"✓ Auto-loaded multilingual merged model")
+                else:
+                    print(f"✗ Failed to load multilingual merged model")
+                return
+
+            # Then try individual language models in preference order
+            lang_order = ["en.pt", "it.pt"]  # English first, then Italian
+            for lang_file in lang_order:
+                lang_model = self.merged_dir / f"speech_{lang_file}"
+                if lang_model.exists():
+                    if lang_file == "en.pt":
+                        language = "en"
+                    elif lang_file == "it.pt":
+                        language = "it"
+
+                    print(f"Auto-loading {language} merged model: {lang_model}")
+                    success = self.load_lora_adapter(str(lang_model), language)
+                    if success:
+                        self.using_lora = True
+                        print(f"✓ Auto-loaded {language} merged model from {lang_model}")
+                    else:
+                        print(f"✗ Failed to load {language} merged model")
+                    return
+
+            # Fall back to old LoRA adapter loading
+            print("No merged models found, trying old LoRA adapters...")
             lora_dirs = [d for d in self.models_dir.iterdir() if d.is_dir() and d.name.startswith("whisper-lora-")]
             if not lora_dirs:
                 print("No LoRA adapters found - using base Whisper model")
@@ -825,16 +857,28 @@ class SpeechService:
         """API endpoint wrapper for audio transcription (frontend expects transcribe-audio)"""
         return await self.transcribe_audio(audio_file, language)
 
-    async def upload_speech_training_data_endpoint_alt(self, audio_file: "UploadFile", language: str, transcript: str) -> dict:
+    async def upload_speech_training_data_endpoint_alt(self, request):
         """Alternative endpoint for speech training data upload (frontend expects upload-speech-training-data)"""
-        from fastapi import HTTPException
+        from fastapi import HTTPException, Request
 
         try:
-            audio_bytes = await audio_file.read()
+            # Parse multipart form data manually
+            form_data = await request.form()
+            file = form_data.get("audio_file")
+            language = form_data.get("language") or "en"
+            transcript = form_data.get("transcript") or ""
+
+            # Handle UploadFile objects
+            if hasattr(file, 'read'):
+                audio_bytes = await file.read()
+                filename = file.filename
+            else:
+                raise HTTPException(status_code=400, detail="No audio file provided")
+
             result = await self.process_speech_training_data(audio_bytes, language, transcript)
             return {
                 "message": "Speech training data uploaded successfully",
-                "filename": audio_file.filename,
+                "filename": filename,
                 "language": language,
                 "transcript": transcript,
                 "audio_size": len(audio_bytes),
@@ -961,7 +1005,7 @@ class SpeechService:
                     "path": "/speech/upload-speech-training-data",
                     "methods": ["POST"],
                     "handler": "upload_speech_training_data_endpoint_alt",
-                    "params": ["audio_file: UploadFile", "language: str", "transcript: str"]
+                    "params": ["request: Request"]
                 },
                 {
                     "path": "/speech/whisper-fine-tune-lora",
