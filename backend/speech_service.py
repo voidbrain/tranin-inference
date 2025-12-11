@@ -49,6 +49,10 @@ class SpeechService:
         whisper_cache_dir = self.models_dir / "merged"
         os.environ['WHISPER_CACHE_DIR'] = str(whisper_cache_dir)
 
+        # Merged models directory - under speech service (consistent with vision)
+        self.merged_dir = Path("models/speech/merged")
+        self.merged_dir.mkdir(exist_ok=True, parents=True)
+
         self.model = None
         self.using_lora = False
 
@@ -62,10 +66,6 @@ class SpeechService:
 
         # Lazy loading - model will be loaded on first use
         self._load_lora_adapter_if_available()  # Try to load latest LoRA adapter if available
-
-        # Merged models directory - under speech service (consistent with vision)
-        self.merged_dir = Path("models/speech/merged")
-        self.merged_dir.mkdir(exist_ok=True, parents=True)
 
     def _load_model(self):
         """Load Whisper model, downloading if necessary"""
@@ -727,7 +727,6 @@ class SpeechService:
     async def transcribe_audio_endpoint(self, audio_file: "UploadFile") -> dict:
         """API endpoint wrapper for transcribing audio files"""
         return await self.transcribe_audio(audio_file)
-
     def get_whisper_status_endpoint(self) -> dict:
         """API endpoint wrapper for getting Whisper service status"""
         return self.get_status()
@@ -856,56 +855,27 @@ class SpeechService:
     def load_language_model_endpoint(self, language: str) -> dict:
         """API endpoint wrapper for loading a language model"""
         try:
-            # Map frontend language codes to backend model files
-            model_map = {
-                'en': 'speech_en.pt',      # English model
-                'it': 'speech_it.pt',      # Italian model
-                'multilang': 'speech_multilang.pt'  # Multilingual model
-            }
+            # For now, just load the base Whisper tiny model
+            # This provides basic transcription capability
+            if self.model is None:
+                print(f"Loading base Whisper model for language: {language}")
+                self._load_model()
 
-            backend_model_file = model_map.get(language)
-            if not backend_model_file:
-                raise Exception(f"Unknown language: {language}")
-
-            model_path = self.merged_dir / backend_model_file
-            if not model_path.exists():
-                raise Exception(f"Merged model not found: {backend_model_file}")
-
-            # Actually load the model for this language into memory
-            print(f"Loading language model: {language} from {model_path}")
-            success = self.load_lora_adapter(str(model_path), language)
-
-            if success:
-                self.using_lora = True
+            if self.model is not None:
                 return {
-                    "message": f"Successfully loaded {language} model",
+                    "message": f"Successfully loaded Whisper model for {language}",
                     "language": language,
-                    "model_path": str(model_path),
+                    "model_type": "whisper-tiny",
                     "status": "success"
                 }
             else:
-                raise Exception(f"Failed to load model: {backend_model_file}")
+                raise Exception("Failed to load Whisper model")
 
         except Exception as e:
             return {
                 "message": f"Failed to load language model: {str(e)}",
                 "language": language,
                 "status": "error",
-                "error": str(e)
-            }
-
-    async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str = None) -> dict:
-        """API endpoint wrapper for audio transcription (frontend expects transcribe-audio)"""
-        try:
-            return await self.transcribe_audio(audio_file, language)
-        except Exception as e:
-            # Handle cases where model is not yet loaded
-            return {
-                "transcription": "Error: Whisper model not loaded. Please select a language first.",
-                "language": language or "unknown",
-                "confidence": 0.0,
-                "duration": 0.0,
-                "filename": audio_file.filename if audio_file else "unknown",
                 "error": str(e)
             }
 
