@@ -224,33 +224,117 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
         elif "UploadFile" in str(params):
             # Handle file upload endpoints (UploadFile parameters)
             from fastapi import UploadFile, File
-            async def post_file_upload_endpoint(file: UploadFile = File(...)):
-                try:
-                    if is_async_method:
-                        return await handler_method(file)
-                    else:
-                        import asyncio
-                        import concurrent.futures
-                        loop = asyncio.get_event_loop()
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            return await loop.run_in_executor(executor, handler_method, file)
-                except Exception as e:
-                    raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
 
-            endpoint_function = post_file_upload_endpoint
+            # Extract parameter name from params (e.g., "audio_file: UploadFile" -> "audio_file")
+            param_name = params[0].split(':')[0] if params else 'file'
+
+            # Create the endpoint function with correct parameter name
+            import inspect
+            sig = inspect.signature(handler_method)
+            param_names = list(sig.parameters.keys())
+
+            if param_names:
+                actual_param_name = param_names[0]
+
+                # Dynamically create function with correct parameter name
+                import types
+
+                if actual_param_name == 'audio_file':
+                    async def post_file_upload_endpoint(audio_file: UploadFile = File(...)):
+                        try:
+                            if is_async_method:
+                                return await handler_method(audio_file)
+                            else:
+                                import asyncio
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, audio_file)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                    endpoint_function = post_file_upload_endpoint
+                else:
+                    # Fallback to default handling with 'file' parameter
+                    async def post_file_upload_endpoint_default(file: UploadFile = File(...)):
+                        try:
+                            if is_async_method:
+                                return await handler_method(file)
+                            else:
+                                import asyncio
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, file)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                    endpoint_function = post_file_upload_endpoint_default
+            else:
+                # Fallback to default handling
+                async def post_file_upload_endpoint_default(file: UploadFile = File(...)):
+                    try:
+                        if is_async_method:
+                            return await handler_method(file)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, file)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                endpoint_function = post_file_upload_endpoint_default
 
         else:
+            # Handle generic POST endpoints with parameters
             async def post_generic_endpoint(request: Request):
                 try:
                     data = await request.json()
+
+                    # Extract parameter values from the JSON data based on the method signature
+                    import inspect
+                    sig = inspect.signature(handler_method)
+                    method_params = list(sig.parameters.keys())
+
+                    # Skip 'self' parameter
+                    method_params = [p for p in method_params if p != 'self']
+
+                    # Prepare arguments
+                    args = []
+                    kwargs = {}
+
+                    # If there's only one parameter and it's named the same as what was sent, extract it
+                    if len(method_params) == 1 and len(params) == 1:
+                        param_name = params[0].split(':')[0]  # e.g., "language" from "language: str"
+                        if param_name in data:
+                            args.append(data[param_name])
+                        else:
+                            # If the data is already the parameter value itself
+                            args.append(data)
+                    else:
+                        # For multiple parameters or unknown cases, pass as kwargs
+                        for param in params:
+                            param_name = param.split(':')[0]
+                            if param_name in data:
+                                kwargs[param_name] = data[param_name]
+
+                    # Call the handler method
                     if is_async_method:
-                        return await handler_method(data)
+                        if args:
+                            return await handler_method(*args)
+                        else:
+                            return await handler_method(**kwargs)
                     else:
                         import asyncio
                         import concurrent.futures
                         loop = asyncio.get_event_loop()
                         with concurrent.futures.ThreadPoolExecutor() as executor:
-                            return await loop.run_in_executor(executor, handler_method, data)
+                            if args:
+                                return await loop.run_in_executor(executor, handler_method, *args)
+                            else:
+                                return await loop.run_in_executor(executor, handler_method, **kwargs)
                 except Exception as e:
                     raise HTTPException(status_code=500, detail=f"POST error: {str(e)}")
 

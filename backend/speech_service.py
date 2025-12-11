@@ -853,9 +853,61 @@ class SpeechService:
         """API endpoint wrapper for getting merged model status"""
         return self.get_merged_model_status()
 
+    def load_language_model_endpoint(self, language: str) -> dict:
+        """API endpoint wrapper for loading a language model"""
+        try:
+            # Map frontend language codes to backend model files
+            model_map = {
+                'en': 'speech_en.pt',      # English model
+                'it': 'speech_it.pt',      # Italian model
+                'multilang': 'speech_multilang.pt'  # Multilingual model
+            }
+
+            backend_model_file = model_map.get(language)
+            if not backend_model_file:
+                raise Exception(f"Unknown language: {language}")
+
+            model_path = self.merged_dir / backend_model_file
+            if not model_path.exists():
+                raise Exception(f"Merged model not found: {backend_model_file}")
+
+            # Actually load the model for this language into memory
+            print(f"Loading language model: {language} from {model_path}")
+            success = self.load_lora_adapter(str(model_path), language)
+
+            if success:
+                self.using_lora = True
+                return {
+                    "message": f"Successfully loaded {language} model",
+                    "language": language,
+                    "model_path": str(model_path),
+                    "status": "success"
+                }
+            else:
+                raise Exception(f"Failed to load model: {backend_model_file}")
+
+        except Exception as e:
+            return {
+                "message": f"Failed to load language model: {str(e)}",
+                "language": language,
+                "status": "error",
+                "error": str(e)
+            }
+
     async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str = None) -> dict:
         """API endpoint wrapper for audio transcription (frontend expects transcribe-audio)"""
-        return await self.transcribe_audio(audio_file, language)
+        try:
+            return await self.transcribe_audio(audio_file, language)
+        except Exception as e:
+            # Handle cases where model is not yet loaded
+            return {
+                "transcription": "Error: Whisper model not loaded. Please select a language first.",
+                "language": language or "unknown",
+                "confidence": 0.0,
+                "duration": 0.0,
+                "filename": audio_file.filename if audio_file else "unknown",
+                "error": str(e)
+            }
 
     async def upload_speech_training_data_endpoint_alt(self, request):
         """Alternative endpoint for speech training data upload (frontend expects upload-speech-training-data)"""
@@ -996,10 +1048,16 @@ class SpeechService:
                     "handler": "get_merged_model_status_endpoint"
                 },
                 {
+                    "path": "/speech/load-language-model",
+                    "methods": ["POST"],
+                    "handler": "load_language_model_endpoint",
+                    "params": ["language: str"]
+                },
+                {
                     "path": "/speech/transcribe-audio",
                     "methods": ["POST"],
                     "handler": "transcribe_audio_endpoint",
-                    "params": ["audio_file: UploadFile", "language: str"]
+                    "params": ["audio_file: UploadFile"]
                 },
                 {
                     "path": "/speech/upload-speech-training-data",

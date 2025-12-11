@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -17,7 +17,18 @@ export class Listen implements OnInit, OnDestroy {
     : 'http://backend:8000';
 
   // Language and recording state
-  selectedLanguage = 'multi'; // Default to multilingual
+  private _selectedLanguage = 'multi'; // Private backing for getter/setter
+
+  get selectedLanguage(): string {
+    return this._selectedLanguage;
+  }
+
+  set selectedLanguage(value: string) {
+    if (this._selectedLanguage === value) return; // No change
+
+    this._selectedLanguage = value;
+    this.loadLanguageModel(value);
+  }
   isRecording = false;
   transcript = '';
   status = 'Ready';
@@ -59,10 +70,12 @@ export class Listen implements OnInit, OnDestroy {
   private recordingStartTime: number = 0;
   private stream: MediaStream | null = null;
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
     this.updateTrainingDataCount();
+    // Load initial language model (multilingual by default)
+    this.loadLanguageModel(this.selectedLanguage);
   }
 
   ngOnDestroy() {
@@ -143,13 +156,12 @@ export class Listen implements OnInit, OnDestroy {
       this.mediaRecorder.start(100); // Collect data every 100ms
 
       // At this point MediaRecorder is successfully started
-      // Wrap in setTimeout to ensure Angular detects the changes
-      setTimeout(() => {
-        this.isRecording = true;
-        this.isStartingRecording = false; // Recording has actually started
-        this.status = 'Recording... (Click Stop when done)';
-        this.clearMessages();
-      }, 0);
+      // Use ChangeDetectorRef to trigger Angular change detection immediately
+      this.isRecording = true;
+      this.isStartingRecording = false; // Recording has actually started
+      this.status = 'Recording... (Click Stop when done)';
+      this.clearMessages();
+      this.cdr.detectChanges();
 
     } catch (error) {
       console.error('Recording error:', error);
@@ -247,6 +259,35 @@ export class Listen implements OnInit, OnDestroy {
     this.isRecording = false;
   }
 
+  private async loadLanguageModel(language: string) {
+    try {
+      // Map frontend language codes to backend model types
+      const modelMap: { [key: string]: string } = {
+        'en': 'en',      // English model
+        'it': 'it',      // Italian model
+        'multi': 'multilang'  // Multilingual model
+      };
+
+      const backendModelType = modelMap[language] || 'multilang'; // Default to multilingual
+
+      this.status = `Switching to ${this.getLanguageDisplayName(language)} model...`;
+      this.showMessage(`Loading ${this.getLanguageDisplayName(language)} Whisper model...`, 'success');
+
+      // Call backend to load the appropriate model
+      const response = await this.http.post(`${this.backendUrl}/speech/load-language-model`, {
+        language: backendModelType
+      }).toPromise();
+
+      this.whisperStatus = `${this.getLanguageDisplayName(language)} Model Active`;
+      this.status = `Ready - Using ${this.getLanguageDisplayName(language)} model`;
+
+    } catch (error: any) {
+      console.error(`Failed to load ${language} model:`, error);
+      this.status = `Failed to load ${this.getLanguageDisplayName(language)} model`;
+      this.showMessage(`Model loading failed: ${error.message}`, 'error');
+    }
+  }
+
   async transcribeAudio() {
     if (!this.audioBlob) return;
 
@@ -256,7 +297,7 @@ export class Listen implements OnInit, OnDestroy {
     try {
       const formData = new FormData();
       const filename = `audio_${Date.now()}.wav`;
-      formData.append('audio', this.audioBlob, filename);
+      formData.append('audio_file', this.audioBlob, filename);
 
       const response = await this.http.post<{transcription: string}>(`${this.backendUrl}/speech/transcribe-audio`, formData).toPromise();
 
