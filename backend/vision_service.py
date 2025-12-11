@@ -72,6 +72,9 @@ class VisionService:
         self.merged_dir = Path(models_dir) / "merged"
         self.merged_dir.mkdir(exist_ok=True, parents=True)
 
+        # Auto-load latest merged model on startup
+        self._load_merged_model_if_available()
+
     async def detect_objects(self, image_data: bytes) -> dict:
         """Run object detection on image data"""
         if not self.model:
@@ -81,6 +84,11 @@ class VisionService:
             # Convert bytes to image for processing
             import io
             from PIL import Image
+
+            # Ensure we have valid image data
+            if len(image_data) == 0:
+                raise Exception("Empty image data received")
+
             image = Image.open(io.BytesIO(image_data))
 
             # Mock detection based on loaded model type
@@ -931,6 +939,34 @@ class VisionService:
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+    def _load_merged_model_if_available(self):
+        """Load the latest merged model if available at startup"""
+        try:
+            # Try to load the merged model that combines both digits and colors
+            merged_pt_file = self.merged_dir / "digits_colors_merged.pt"
+
+            if merged_pt_file.exists():
+                print(f"Auto-loading merged model: {merged_pt_file}")
+                self.model = {
+                    "type": "merged",
+                    "training_type": "merged",
+                    "merged_path": str(merged_pt_file),
+                    "onnx_path": str(merged_pt_file.with_suffix('.onnx')),
+                    "base_model": "YOLOv8n"
+                }
+                self.using_base_model = False
+                print(f"✓ Auto-loaded merged model: {merged_pt_file}")
+
+            else:
+                print("No merged model found at startup - starting with base model")
+                self.model = None
+                self.using_base_model = True
+
+        except Exception as e:
+            print(f"Warning: Failed to auto-load merged model: {e}")
+            self.model = None
+            self.using_base_model = True
 
     @classmethod
     def get_service_config(cls):

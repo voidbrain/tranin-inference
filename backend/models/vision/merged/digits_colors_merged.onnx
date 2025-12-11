@@ -1,5 +1,5 @@
 # ONNX Export of Merged Model
-Source: backend/models/vision/merged/digits_colors_merged.pt
+Source: models/vision/merged/digits_colors_merged.pt
 Format: ONNX (.onnx)
 Description: ONNX-compatible version for inference optimization
 

@@ -1,0 +1,7 @@
+# ONNX Export of Merged Model
+Source: models/vision/merged/colors_merged.pt
+Format: ONNX (.onnx)
+Description: ONNX-compatible version for inference optimization
+
+This is a placeholder for the actual ONNX export.
+In production, this would contain the actual ONNX model format.

@@ -1,1 +1,7 @@
-# ONNX export of en speech model
+# ONNX Export of Merged Model
+Source: models/speech/merged/speech_en.pt
+Format: ONNX (.onnx)
+Description: ONNX-compatible version for inference optimization
+
+This is a placeholder for the actual ONNX export.
+In production, this would contain the actual ONNX model format.
