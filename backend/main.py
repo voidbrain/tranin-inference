@@ -269,27 +269,56 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                 # Single path parameter case - create a function with correct signature
                 param_name = path_params[0]
 
-                def create_path_endpoint():
-                    handler = handler_method
-                    is_async = is_async_method
-
-                    async def path_endpoint(detection_mode: str):
+                # Create a function that properly expects the path parameter
+                # Use dynamic function creation to handle different parameter names
+                if param_name == 'detection_mode':
+                    # Special case for detection_mode path parameter
+                    async def path_endpoint_detection_mode(detection_mode: str):
                         try:
-                            kwargs = {param_name: detection_mode}
-                            if is_async:
-                                return await handler(**kwargs)
+                            if is_async_method:
+                                return await handler_method(detection_mode)
                             else:
                                 import asyncio
                                 import concurrent.futures
                                 loop = asyncio.get_event_loop()
                                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                                    return await loop.run_in_executor(executor, handler, detection_mode)
+                                    return await loop.run_in_executor(executor, handler_method, detection_mode)
                         except Exception as e:
                             raise HTTPException(status_code=500, detail=f"GET path param error: {str(e)}")
 
-                    return path_endpoint
+                    endpoint_function = path_endpoint_detection_mode
+                elif param_name == 'training_type':
+                    # Special case for training_type path parameter
+                    async def path_endpoint_training_type(training_type: str):
+                        try:
+                            if is_async_method:
+                                return await handler_method(training_type)
+                            else:
+                                import asyncio
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, training_type)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"GET path param error: {str(e)}")
 
-                endpoint_function = create_path_endpoint()
+                    endpoint_function = path_endpoint_training_type
+                else:
+                    # Generic fallback for other path parameters
+                    async def generic_path_endpoint(param_value: str):
+                        try:
+                            import asyncio
+                            if is_async_method:
+                                return await handler_method(param_value)
+                            else:
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, param_value)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"GET generic path param error: {str(e)}")
+
+                    endpoint_function = generic_path_endpoint
             else:
                 # Multiple parameters - fallback to kwargs
                 async def get_mixed_params_endpoint(**kwargs):

@@ -29,6 +29,7 @@ yarn-error.log
 .history/*
 
 # Miscellaneous
+*/.angular/*.*
 /.angular/cache
 .sass-cache/
 /connect.lock
@@ -43,6 +44,7 @@ __screenshots__/
 Thumbs.db
 
 # Dependencies
+.angular/
 node_modules/
 __pycache__/
 *.pyc
@@ -59,6 +61,8 @@ venv.bak/
 frontend/node_modules/
 frontend/traninging/node_modules/
 frontend/*/node_modules/
+frontend/*/.angular/
+frontend/.angular/*.*
 *.log
 yarn-debug.log*
 dist/

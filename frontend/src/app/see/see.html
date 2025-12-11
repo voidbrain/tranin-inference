@@ -275,6 +275,11 @@
                     class="training-type-btn">
               🎨 Colors
             </button>
+            <button (click)="trainingType.set('combined')"
+                    [class.selected]="trainingType() === 'combined'"
+                    class="training-type-btn">
+              🔀 Combined (Digits + Colors)
+            </button>
           </div>
         </div>
 
@@ -307,27 +312,26 @@
         <!-- Training Actions -->
         <div class="specialized-actions" *ngIf="trainingType()">
           <div class="action-buttons">
-            <button *ngIf="trainingType() === 'digits'" (click)="startSpecializedTraining('digits')"
+            <button *ngIf="trainingType() !== 'combined' && trainingType() !== ''" (click)="startSpecializedTraining($any(trainingType()))"
                     class="lora-train-btn">
-              🧠 Train LoRA (Freeze Base)
-            </button>
-            <button *ngIf="trainingType() === 'colors'" (click)="startSpecializedTraining('colors')"
-                    class="lora-train-btn">
-              🧠 Train LoRA (Freeze Base)
+              🧠 Train {{ trainingType() === 'digits' ? 'Digits' : 'Colors' }} LoRA (Freeze Base)
             </button>
 
-            <button *ngIf="trainingType() === 'digits'" (click)="loadLoraAdapter('digits')"
+            <button *ngIf="trainingType() !== 'combined'" (click)="loadLoraAdapter($any(trainingType()))"
                     class="load-adapter-btn">
-              🔌 Load Digits Adapter
+              🔌 Load {{ trainingType() === 'digits' ? 'Digits' : 'Colors' }} Adapter
             </button>
-            <button *ngIf="trainingType() === 'colors'" (click)="loadLoraAdapter('colors')"
-                    class="load-adapter-btn">
-              🔌 Load Colors Adapter
+
+            <!-- Combined Model Training (requires both LoRA adapters) -->
+            <button (click)="startCombinedModelTraining()"
+                    class="combined-train-btn"
+                    title="Requires both digits and colors LoRA adapters to be trained first">
+              🔀 Train Combined Model
             </button>
           </div>
 
           <div class="training-tip">
-            💡 <strong>Tip:</strong> Use "Send to Backend" in Detect tab first, then train LoRA adapter, then load the adapter for inference.
+            💡 <strong>Tip:</strong> Select a training type above, then use "Send to Backend" in Detect tab to create training data.
             <br>
             🧊 Base YOLO backbone remains frozen - only LoRA layers are trained!
           </div>

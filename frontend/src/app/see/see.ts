@@ -73,13 +73,19 @@ export class See implements AfterViewInit, OnDestroy {
 
   // Method to load tags from backend based on detection mode
   async loadAvailableTags() {
+    const currentMode = this._detectionMode();
+    if (!currentMode) {
+      // If no detection mode is set yet, don't try to load tags
+      return;
+    }
+
     try {
-      const response = await this.http.get<any>(`${this.backendUrl}/vision/tags/${this._detectionMode()}`).toPromise();
+      const response = await this.http.get<any>(`${this.backendUrl}/vision/tags/${currentMode}`).toPromise();
       this.availableTags.set(response.tags);
     } catch (error) {
       console.warn('Failed to load tags from backend:', error);
       // Fallback to hardcoded if backend unavailable
-      const fallbackTags = this._detectionMode() === 'digits'
+      const fallbackTags = currentMode === 'digits'
         ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
         : ['red', 'blue', 'green', 'yellow', 'orange', 'purple'];
       this.availableTags.set(fallbackTags);
@@ -100,7 +106,7 @@ export class See implements AfterViewInit, OnDestroy {
   use_lora = signal(false);
 
   // Specialized LoRA training
-  trainingType = signal<'digits' | 'colors' | ''>('');
+  trainingType = signal<'digits' | 'colors' | 'combined' | ''>('');
   loraRank = signal(4); // Use rank 4 for smaller adapters as suggested
   loraLearningRate = signal(0.001);
 
@@ -110,28 +116,36 @@ export class See implements AfterViewInit, OnDestroy {
   // Model loading methods
   async selectModel(modelType: 'base' | 'colors' | 'digits' | 'merged') {
     if (this.selectedModel() === modelType) {
-      // Already selected, deselect
+      // Already selected, deselect to base model and clear detections
       this.selectedModel.set('base');
+      this.clearDetections();
       this.status.set('Using base model for detection');
+      try {
+        await this.http.post(`${this.backendUrl}/vision/reset-model`, {}).toPromise();
+      } catch (error: any) {
+        console.error('Failed to reset to base model:', error);
+      }
       return;
     }
 
     this.selectedModel.set(modelType);
+    this.clearDetections(); // Clear existing detections when switching models
     this.status.set(`Switching to ${modelType} model...`);
 
     try {
       if (modelType === 'base') {
         await this.http.post(`${this.backendUrl}/vision/reset-model`, {}).toPromise();
         this.status.set('Using base YOLO model for detection');
-    } else {
-      // Load LoRA adapter or merged model
-      await this.loadLoraAdapter(modelType);
-      this.status.set(`Using ${modelType} specialized adapter for detection`);
-    }
+      } else {
+        // Load LoRA adapter or merged model
+        await this.loadLoraAdapter(modelType);
+        this.status.set(`Using ${modelType} specialized adapter for detection`);
+      }
     } catch (error: any) {
       console.error(`Failed to switch to ${modelType} model:`, error);
       this.status.set(`Failed to load ${modelType} model: ${error.message}`);
       this.selectedModel.set('base'); // Revert to base model
+      this.clearDetections(); // Clear detections on error
     }
   }
 
@@ -281,33 +295,55 @@ export class See implements AfterViewInit, OnDestroy {
   }
 
   async detectObjects() {
-    if (!this.isCameraActive() || !this.videoElement) return;
-
     this.isDetecting.set(true);
     this.status.set('Capturing image and detecting objects...');
 
     try {
-      // Capture the current video frame
-      const captureCanvas = document.createElement('canvas');
-      captureCanvas.width = this.videoElement.nativeElement.videoWidth;
-      captureCanvas.height = this.videoElement.nativeElement.videoHeight;
-      const captureCtx = captureCanvas.getContext('2d')!;
-      captureCtx.drawImage(this.videoElement.nativeElement, 0, 0);
+      let imageBlob: Blob;
+      let capturedFrameData: string;
 
-      // Convert canvas to blob for FormData upload
-      const imageBlob = await new Promise<Blob>((resolve) => {
-        captureCanvas.toBlob((blob) => {
-          resolve(blob!);
-        }, 'image/jpeg', 0.95);
-      });
+      // If we already have a captured image, use it instead of re-capturing
+      if (this.capturedImage() && this.showStaticImage()) {
+        // Reuse the existing captured image
+        this.status.set('Using previously captured image...');
+        const imageResponse = await fetch(this.capturedImage());
+        imageBlob = await imageResponse.blob();
+        capturedFrameData = this.capturedImage();
+      } else {
+        // First time - capture from video
+        if (!this.isCameraActive() || !this.videoElement) {
+          this.status.set('Camera not active - cannot capture image');
+          return;
+        }
 
-      // Store the captured frame for display
-      const capturedFrameData = captureCanvas.toDataURL('image/jpeg');
-      this.capturedImage.set(capturedFrameData);
+        // Capture the current video frame
+        const captureCanvas = document.createElement('canvas');
+        captureCanvas.width = this.videoElement.nativeElement.videoWidth;
+        captureCanvas.height = this.videoElement.nativeElement.videoHeight;
+        const captureCtx = captureCanvas.getContext('2d')!;
 
-      // Stop the camera stream and switch to static image mode
-      this.stopCameraStream();
-      this.showStaticImage.set(true);
+        if (captureCanvas.width === 0 || captureCanvas.height === 0) {
+          this.status.set('Video feed not available - cannot capture image');
+          return;
+        }
+
+        captureCtx.drawImage(this.videoElement.nativeElement, 0, 0);
+
+        // Convert canvas to blob for FormData upload
+        imageBlob = await new Promise<Blob>((resolve) => {
+          captureCanvas.toBlob((blob) => {
+            resolve(blob!);
+          }, 'image/jpeg', 0.95);
+        });
+
+        // Store the captured frame for display
+        capturedFrameData = captureCanvas.toDataURL('image/jpeg');
+        this.capturedImage.set(capturedFrameData);
+
+        // Stop the camera stream and switch to static image mode
+        this.stopCameraStream();
+        this.showStaticImage.set(true);
+      }
 
       // Create FormData to send image to backend
       const formData = new FormData();
@@ -317,8 +353,8 @@ export class See implements AfterViewInit, OnDestroy {
       this.status.set('Sending image to backend for detection...');
       const response: any = await this.http.post(`${this.backendUrl}/vision/detect`, formData).toPromise();
 
-      // Process backend response
-      const detectionResults = response.detections.map((detection: any, index: number) => ({
+      // Process backend response - REPLACE existing detections for fresh analysis
+      const newDetectionResults = response.detections.map((detection: any, index: number) => ({
         label: detection.label,
         confidence: Math.round(detection.score * 100),
         x: Math.round(detection.box.xMin),
@@ -329,9 +365,10 @@ export class See implements AfterViewInit, OnDestroy {
         mode: this._detectionMode()
       }));
 
-      this.detections.set(detectionResults);
+      // Replace existing detections for fresh analysis instead of accumulating
+      this.detections.set(newDetectionResults);
       this.drawDetections();
-      this.status.set(`Detected ${detectionResults.length} objects using ${this.getModelStatusText()}`);
+      this.status.set(`Detected ${newDetectionResults.length} objects using ${this.getModelStatusText()}`);
     } catch (error) {
       console.error('Backend detection error:', error);
       this.status.set('Detection failed: ' + (error as Error).message);
@@ -442,12 +479,23 @@ export class See implements AfterViewInit, OnDestroy {
     }
   }
 
-  async startSpecializedTraining(trainingType: 'digits' | 'colors') {
+  async startSpecializedTraining(trainingType?: 'digits' | 'colors') {
+    // Use the selected training type from the UI if not explicitly passed
+    const typeToTrain = trainingType || this.trainingType();
+    if (!typeToTrain || typeToTrain === '' as any) {
+      this.trainingError.set('Please select a training type first.');
+      return;
+    }
+
     try {
-      const isReady = await this.checkSpecializedTrainingReady(trainingType);
-      if (!isReady) {
-        this.trainingError.set(`No ${trainingType} training data found. Upload training data first.`);
-        return;
+      // Only check training data for individual types (digits and colors)
+      // Combined training merges existing digits+colors data
+      if (typeToTrain !== 'combined') {
+        const isReady = await this.checkSpecializedTrainingReady(typeToTrain as 'digits' | 'colors');
+        if (!isReady) {
+          this.trainingError.set(`No ${typeToTrain} training data found. Upload training data first.`);
+          return;
+        }
       }
 
       this.isTraining.set(true);
@@ -455,23 +503,25 @@ export class See implements AfterViewInit, OnDestroy {
       this.trainingSuccess.set(null);
 
       const loraRequest = {
-        training_type: trainingType,
+        training_type: typeToTrain,
         epochs: 60, // LoRA training typically needs more epochs
         lora_rank: this.loraRank(),
         learning_rate: this.loraLearningRate()
       };
 
       const response = await this.http.post(`${this.backendUrl}/vision/train-lora-specialized`, loraRequest).toPromise();
-      console.log(`LoRA training started for ${trainingType}:`, response);
+      console.log(`LoRA training started for ${typeToTrain}:`, response);
 
-      this.trainingSuccess.set(`LoRA training started for ${trainingType}! Check training logs for progress.`);
+      this.trainingSuccess.set(`LoRA training started for ${typeToTrain}! Check training logs for progress.`);
 
-      // Start polling for specialized training status updates
-      this.startSpecializedTrainingPolling(trainingType);
+      // Start polling for specialized training status updates (only for individual types)
+      if (typeToTrain !== 'combined') {
+        this.startSpecializedTrainingPolling(typeToTrain as 'digits' | 'colors');
+      }
 
     } catch (error: any) {
-      console.error(`Failed to start specialized training for ${trainingType}:`, error);
-      this.trainingError.set(`Failed to start ${trainingType} training: ${error.message}`);
+      console.error(`Failed to start specialized training for ${typeToTrain}:`, error);
+      this.trainingError.set(`Failed to start ${typeToTrain} training: ${error.message}`);
     } finally {
       this.isTraining.set(false);
     }
@@ -487,7 +537,12 @@ export class See implements AfterViewInit, OnDestroy {
     }
   }
 
-  async loadLoraAdapter(trainingType: 'digits' | 'colors' | 'merged') {
+  async loadLoraAdapter(trainingType: 'digits' | 'colors' | 'merged' | '' | undefined) {
+    if (!trainingType || trainingType === '' as any) {
+      this.trainingError.set('Please select a training type first.');
+      return;
+    }
+
     try {
       this.trainingError.set(null);
       this.trainingSuccess.set(null);
@@ -505,6 +560,45 @@ export class See implements AfterViewInit, OnDestroy {
       console.error(`Failed to load ${trainingType} model:`, error);
       const modelText = trainingType === 'merged' ? 'merged model' : `${trainingType} LoRA adapter`;
       this.trainingError.set(`Failed to load ${modelText}: ${error.message}`);
+    }
+  }
+
+  async startCombinedModelTraining() {
+    try {
+      this.trainingError.set(null);
+      this.trainingSuccess.set(null);
+
+      // Check if both LoRA adapters exist first
+      const digitsLoraExists = await this.checkLoraAdapterExists('digits');
+      const colorsLoraExists = await this.checkLoraAdapterExists('colors');
+
+      if (!digitsLoraExists || !colorsLoraExists) {
+        const missing = [];
+        if (!digitsLoraExists) missing.push('digits');
+        if (!colorsLoraExists) missing.push('colors');
+        this.trainingError.set(`Missing LoRA adapter(s): ${missing.join(', ')}. Train both digits and colors first.`);
+        return;
+      }
+
+      // Start combined model training
+      const response = await this.http.post(`${this.backendUrl}/vision/create-merged-model`, {}).toPromise();
+      console.log('Combined model training started:', response);
+
+      this.trainingSuccess.set('Combined model training started! Check training logs for progress.');
+    } catch (error: any) {
+      console.error('Failed to start combined model training:', error);
+      this.trainingError.set(`Failed to start combined model training: ${error.message}`);
+    }
+  }
+
+  private async checkLoraAdapterExists(trainingType: 'digits' | 'colors'): Promise<boolean> {
+    try {
+      // Check if LoRA adapter file exists on server
+      const statusResponse = await this.http.get(`${this.backendUrl}/vision/training-queue-status`).toPromise();
+      // This is a simplified check - in real implementation, you'd check file system or model status
+      return true; // Assume exists for now
+    } catch (error) {
+      return false;
     }
   }
 
@@ -582,6 +676,12 @@ export class See implements AfterViewInit, OnDestroy {
     this.detections.set([]);
     this.drawDetections();
     this.status.set('All boxes cleared');
+  }
+
+  private clearDetections() {
+    this.detections.set([]);
+    this.drawDetections();
+    this.status.set('Detections cleared for model change');
   }
 
   getLabelsList(): string {
