@@ -137,8 +137,9 @@ class VisionService:
                     # Run inference
                     results = yolo_model(image, conf=0.25)  # Lower confidence threshold
 
-                    # Process real YOLO results
-                    detections = []
+                    # Process real YOLO results and separate by detection type
+                    digit_detections = []
+                    color_detections = []
                     for result in results:
                         boxes = result.boxes
                         if boxes is not None:
@@ -151,16 +152,32 @@ class VisionService:
                                 # Map class_id to label based on model type
                                 label = self._map_class_id_to_label(class_id, training_type, model_type)
 
-                                detections.append({
-                                    "label": label,
-                                    "score": float(confidence),
-                                    "box": {
-                                        "xMin": float(x1),
-                                        "yMin": float(y1),
-                                        "xMax": float(x2),
-                                        "yMax": float(y2)
-                                    }
-                                })
+                                # Filter out invalid/unknown classes - only allow valid digits and colors
+                                valid_digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+                                valid_colors = ['red', 'blue', 'green', 'yellow', 'orange', 'purple']
+
+                                if label in valid_digits:
+                                    digit_detections.append({
+                                        "label": label,
+                                        "score": float(confidence),
+                                        "box": {
+                                            "xMin": float(x1),
+                                            "yMin": float(y1),
+                                            "xMax": float(x2),
+                                            "yMax": float(y2)
+                                        }
+                                    })
+                                elif label in valid_colors:
+                                    color_detections.append({
+                                        "label": label,
+                                        "score": float(confidence),
+                                        "box": {
+                                            "xMin": float(x1),
+                                            "yMin": float(y1),
+                                            "xMax": float(x2),
+                                            "yMax": float(y2)
+                                        }
+                                    })
 
                     use_mock = False  # Successfully used real model
 
@@ -170,15 +187,19 @@ class VisionService:
                 use_mock = True
 
             # Fallback to mock detections if real model fails
-            if use_mock or len(detections) == 0:
-                detections = self._get_mock_detections(training_type, model_type)
+            if use_mock or len(digit_detections) + len(color_detections) == 0:
+                digit_detections, color_detections = self._get_mock_detections(training_type, model_type)
 
             return {
-                "detections": detections,
+                "digitDetections": digit_detections,
+                "colorDetections": color_detections,
+                "allDetections": digit_detections + color_detections,  # For backward compatibility
                 "mock": use_mock,
                 "model_type": model_type,
                 "training_type": training_type,
-                "total_detections": len(detections),
+                "total_detections": len(digit_detections) + len(color_detections),
+                "digital_count": len(digit_detections),
+                "color_count": len(color_detections),
                 "model_path": model_path if 'model_path' in locals() else None
             }
 
@@ -206,34 +227,47 @@ class VisionService:
         else:
             return f'class_{class_id}'
 
-    def _get_mock_detections(self, training_type: str, model_type: str) -> list:
+    def _get_mock_detections(self, training_type: str, model_type: str) -> tuple:
         """Fallback mock detections when real model inference fails"""
-        detections = []
+        digit_detections = []
+        color_detections = []
 
         if model_type == "merged" or training_type == "merged":
             # Merged model - detect both digits and colors
-            detection_classes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'red', 'blue', 'green', 'yellow', 'orange', 'purple']
-            num_detections = 5  # More detections for merged model to show both types
-            for i in range(num_detections):
-                class_name = detection_classes[i % len(detection_classes)]
-                detections.append({
-                    "label": class_name,
-                    "score": 0.82 + (i * 0.03),  # Varying confidence
+            digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+            colors = ['red', 'blue', 'green', 'yellow', 'orange', 'purple']
+
+            # Add some digit detections
+            for i in range(2):
+                digit_detections.append({
+                    "label": digits[i],
+                    "score": 0.85 + (i * 0.02),
                     "box": {
-                        "xMin": 50 + (i * 80),
-                        "yMin": 100 + (i * 40),
-                        "xMax": 150 + (i * 80),
-                        "yMax": 180 + (i * 40)
+                        "xMin": 60 + (i * 100),
+                        "yMin": 110,
+                        "xMax": 140 + (i * 100),
+                        "yMax": 170
+                    }
+                })
+
+            # Add some color detections
+            for i in range(3):
+                color_detections.append({
+                    "label": colors[i],
+                    "score": 0.78 + (i * 0.04),
+                    "box": {
+                        "xMin": 70 + (i * 120),
+                        "yMin": 120,
+                        "xMax": 160 + (i * 120),
+                        "yMax": 180
                     }
                 })
         elif training_type == "digits":
             # Digits model - detect only digits
             digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-            num_detections = 2
-            for i in range(num_detections):
-                class_name = digits[i % len(digits)]
-                detections.append({
-                    "label": class_name,
+            for i in range(2):
+                digit_detections.append({
+                    "label": digits[i],
                     "score": 0.85 + (i * 0.02),
                     "box": {
                         "xMin": 60 + (i * 100),
@@ -245,11 +279,9 @@ class VisionService:
         elif training_type == "colors":
             # Colors model - detect only colors
             colors = ['red', 'blue', 'green', 'yellow', 'orange', 'purple']
-            num_detections = 2
-            for i in range(num_detections):
-                class_name = colors[i % len(colors)]
-                detections.append({
-                    "label": class_name,
+            for i in range(2):
+                color_detections.append({
+                    "label": colors[i],
                     "score": 0.78 + (i * 0.04),
                     "box": {
                         "xMin": 70 + (i * 120),
@@ -260,7 +292,7 @@ class VisionService:
                 })
         # Base model returns empty detections (no mocks)
 
-        return detections
+        return digit_detections, color_detections
 
     def get_status(self) -> dict:
         """Get current status of YOLO service"""
