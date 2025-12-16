@@ -211,6 +211,120 @@
   opacity: 0.8;
 }
 
+.audio-controls {
+  display: flex;
+  justify-content: center;
+  margin-top: 15px;
+}
+
+.download-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(16,185,129,0.4);
+  }
+}
+
+.audio-upload-section {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  border-radius: 16px;
+  padding: 25px;
+  margin-bottom: 25px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+
+  h3 {
+    margin-top: 0;
+    font-size: 1.4rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #2c3e50;
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+.upload-note {
+  text-align: center;
+  color: #495057;
+  font-size: 0.95rem;
+  font-style: italic;
+  margin-bottom: 20px;
+  opacity: 0.8;
+}
+
+.upload-controls {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.file-input {
+  display: none; // Hidden, triggered by button
+}
+
+.upload-btn {
+  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(79,70,229,0.4);
+  }
+}
+
+.process-upload-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(245,158,11,0.4);
+  }
+
+  &:disabled {
+    background: rgba(245,158,11,0.3);
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.file-info {
+  text-align: center;
+  background: rgba(255,255,255,0.2);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 0.9rem;
+  color: #2c3e50;
+  font-weight: 500;
+}
+
 .transcription-section {
   background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
   border-radius: 16px;

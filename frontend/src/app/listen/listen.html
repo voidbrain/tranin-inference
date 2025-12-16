@@ -50,12 +50,35 @@
 
   <!-- Audio Playback -->
   <div *ngIf="audioBlob" class="audio-playback-section">
-    <h3>🔊 Listen to Recorded Audio</h3>
+    <h3>🔊 Listen to {{ audioSource === 'uploaded' ? 'Uploaded' : 'Recorded' }} Audio</h3>
     <div class="audio-player">
       <audio controls [src]="audioUrl" class="audio-element">
         Your browser does not support the audio element.
       </audio>
+      <div class="audio-controls">
+        <button (click)="downloadAudio()" class="download-btn">
+          ⬇️ Download Audio
+        </button>
+      </div>
       <p class="audio-note">🎵 Play your recorded audio before transcribing</p>
+    </div>
+  </div>
+
+  <!-- Alternative Audio Upload -->
+  <div class="audio-upload-section">
+    <h3>📁 Upload Audio File</h3>
+    <p class="upload-note">💡 Alternative to microphone recording - upload an audio file directly</p>
+    <div class="upload-controls">
+      <input type="file" accept="audio/*,.webm" (change)="onAudioFileSelected($event)" #audioFileInput class="file-input">
+      <button (click)="audioFileInput.click()" class="upload-btn">
+        📁 Choose Audio File
+      </button>
+      <button (click)="processUploadedAudio()" [disabled]="!selectedAudioFile" class="process-upload-btn">
+        🎵 Load Audio
+      </button>
+    </div>
+    <div *ngIf="selectedAudioFile" class="file-info">
+      📄 Selected: {{ selectedAudioFile.name }} ({{ formatFileSize(selectedAudioFile.size) }})
     </div>
   </div>
 

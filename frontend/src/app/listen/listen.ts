@@ -53,6 +53,10 @@ export class Listen implements OnInit, OnDestroy {
   audioSize = '0';
   isStartingRecording = false;
 
+  // File upload state
+  selectedAudioFile: File | null = null;
+  audioSource: 'recorded' | 'uploaded' | null = null;
+
   // Processing states
   isTranscribing = false;
   isUploading = false;
@@ -215,6 +219,7 @@ export class Listen implements OnInit, OnDestroy {
       this.audioUrl = URL.createObjectURL(audioBlob);
       this.audioDuration = duration.toString();
       this.audioSize = size;
+      this.audioSource = 'recorded';
 
       // Trigger change detection to update the UI
       this.cdr.detectChanges();
@@ -262,8 +267,10 @@ export class Listen implements OnInit, OnDestroy {
 
     // Reset state
     this.audioBlob = null;
+    this.audioUrl = null;
     this.audioDuration = '0';
     this.audioSize = '0';
+    this.audioSource = null;
     this.transcript = '';
     this.status = 'Recording reset';
     this.clearMessages();
@@ -469,5 +476,78 @@ export class Listen implements OnInit, OnDestroy {
   private clearMessages() {
     this.lastMessage = '';
     this.lastMessageType = '';
+  }
+
+  // Download recorded audio
+  downloadAudio() {
+    if (!this.audioBlob) return;
+
+    const url = URL.createObjectURL(this.audioBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `recorded_audio_${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    this.showMessage('Audio downloaded successfully!', 'success');
+  }
+
+  // Handle file selection for upload
+  onAudioFileSelected(event: any) {
+    const file = event.target.files[0];
+    if (file) {
+      this.selectedAudioFile = file;
+      this.cdr.detectChanges();
+    }
+  }
+
+  // Process uploaded audio file
+  async processUploadedAudio() {
+    if (!this.selectedAudioFile) return;
+
+    try {
+      // Clean up any existing recording
+      await this.cleanupRecording();
+
+      // Clean up previous audio URL
+      if (this.audioUrl) {
+        URL.revokeObjectURL(this.audioUrl);
+        this.audioUrl = null;
+      }
+
+      // Convert file to blob
+      this.audioBlob = new Blob([await this.selectedAudioFile.arrayBuffer()], {
+        type: this.selectedAudioFile.type
+      });
+
+      this.audioUrl = URL.createObjectURL(this.audioBlob);
+      this.audioDuration = 'N/A'; // We don't know duration for uploaded files
+      this.audioSize = (this.selectedAudioFile.size / 1024 / 1024).toFixed(2);
+      this.audioSource = 'uploaded';
+
+      this.status = 'Audio file loaded successfully';
+      this.showMessage(`Audio file "${this.selectedAudioFile.name}" loaded successfully!`, 'success');
+
+      // Clear the file input
+      this.selectedAudioFile = null;
+
+      this.cdr.detectChanges();
+
+    } catch (error) {
+      console.error('File processing error:', error);
+      this.status = 'Failed to load audio file';
+      this.showMessage('Failed to load audio file', 'error');
+    }
+  }
+
+  // Format file size for display
+  formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }
