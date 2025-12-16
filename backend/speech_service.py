@@ -125,6 +125,10 @@ class SpeechService:
                 # Re-run transcription with English forced
                 options['language'] = 'en'
                 result = self.model.transcribe(audio_array, **options)
+            elif language is not None and not restrict_to_supported_langs:
+                # For specific language selection, use the selected language instead of detected
+                detected_lang = language
+                print(f"Specific language '{language}' selected, using it instead of detected '{result.get('language', 'unknown')}'")
 
             return {
                 'transcription': result['text'].strip(),
@@ -746,32 +750,36 @@ class SpeechService:
     # ===== SPEECH-SPECIFIC ENDPOINT METHODS =====
     # These methods wrap the service functionality for API endpoints
 
-    async def transcribe_audio_endpoint(self, request) -> dict:
+    async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str = "multi") -> dict:
         """API endpoint wrapper for transcribing audio files"""
-        from fastapi import HTTPException, Request
+        from fastapi import HTTPException
 
         try:
-            # Parse multipart form data
-            form_data = await request.form()
-            audio_file = form_data.get("audio_file")
-            language = form_data.get("language") or "multi"
-
             if not audio_file:
                 raise HTTPException(status_code=400, detail="No audio file provided")
 
-            # Ensure audio_file is an UploadFile object
-            if not hasattr(audio_file, 'read'):
-                raise HTTPException(status_code=400, detail="Invalid audio file format")
+            print(f"Transcription request: language={language}")
 
             # Map frontend language codes to Whisper codes
-            # Restrict to only English, Italian, or multilingual (en+it)
-            lang_map = {
-                'en': 'en',
-                'it': 'it',
-                'multi': None,  # Allow auto-detection but restrict to en/it only
-            }
-            whisper_lang = lang_map.get(language, None)
-            return await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=(language == 'multi'))
+            # For specific languages, force that language
+            # For multilingual, allow auto-detection but restrict to supported languages
+            if language == 'multi':
+                whisper_lang = None  # Auto-detect
+                restrict_to_supported = True
+                print("Using multilingual mode")
+            else:
+                # Force the selected language
+                lang_map = {
+                    'en': 'en',
+                    'it': 'it',
+                }
+                whisper_lang = lang_map.get(language, 'en')  # Default to English if unknown
+                restrict_to_supported = False
+                print(f"Using specific language mode: whisper_lang={whisper_lang}, restrict_to_supported={restrict_to_supported}")
+
+            result = await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=restrict_to_supported)
+            print(f"Transcription result: {result}")
+            return result
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Transcription endpoint error: {str(e)}")
@@ -903,38 +911,30 @@ class SpeechService:
     def load_language_model_endpoint(self, language: str) -> dict:
         """API endpoint wrapper for loading a language model"""
         try:
-            # Try to load merged models from local storage first
-            model_candidates = [
-                # PT models (preferred for Whisper)
-                (str(self.merged_dir / f"speech_{language}.pt"), "pt"),
-                (str(self.merged_dir / f"speech_multilang.pt"), "pt"),
-            ]
-
-            model_path = None
-            model_format = None
-
-            # Find the first available model
-            for candidate_path, format_type in model_candidates:
-                if Path(candidate_path).exists() and Path(candidate_path).stat().st_size > 1000000:  # >1MB = real model
-                    model_path = candidate_path
-                    model_format = format_type
-                    break
-
-            if model_path:
-                print(f"Loading local merged {model_format.upper()} Whisper model for {language}: {model_path}")
-                try:
-                    self._load_model(model_path)
-                    model_type = Path(model_path).stem
-                    print(f"✓ Successfully loaded merged model: {model_type}")
-                except Exception as load_error:
-                    print(f"Failed to load merged {model_format.upper()} model: {load_error}")
-                    print(f"Falling back to remote tiny model")
+            # For specific languages, try to load the language-specific model first
+            if language in ['en', 'it']:
+                specific_model = self.merged_dir / f"speech_{language}.pt"
+                if specific_model.exists() and specific_model.stat().st_size > 1000000:
+                    print(f"Loading language-specific model for {language}: {specific_model}")
+                    self._load_model(str(specific_model))
+                    model_type = f"speech_{language}"
+                    print(f"✓ Successfully loaded {language}-specific model")
+                else:
+                    print(f"No {language}-specific model found, loading base model")
                     self._load_model()
                     model_type = "whisper-tiny"
             else:
-                print(f"No valid local merged models found, loading remote Whisper tiny model for {language}")
-                self._load_model()
-                model_type = "whisper-tiny"
+                # For multilingual or other cases, try multilingual model first
+                multilang_model = self.merged_dir / "speech_multilang.pt"
+                if multilang_model.exists() and multilang_model.stat().st_size > 1000000:
+                    print(f"Loading multilingual model: {multilang_model}")
+                    self._load_model(str(multilang_model))
+                    model_type = "speech_multilang"
+                    print(f"✓ Successfully loaded multilingual model")
+                else:
+                    print(f"No multilingual model found, loading base model")
+                    self._load_model()
+                    model_type = "whisper-tiny"
 
             if self.model is not None:
                 return {
@@ -1102,7 +1102,7 @@ class SpeechService:
                     "path": "/speech/transcribe-audio",
                     "methods": ["POST"],
                     "handler": "transcribe_audio_endpoint",
-                    "params": ["request: Request"]
+                    "params": ["audio_file: UploadFile", "language: str"]
                 },
                 {
                     "path": "/speech/upload-speech-training-data",

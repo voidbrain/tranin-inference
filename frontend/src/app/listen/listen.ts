@@ -57,6 +57,11 @@ export class Listen implements OnInit, OnDestroy {
   selectedAudioFile: File | null = null;
   audioSource: 'recorded' | 'uploaded' | null = null;
 
+  // Transcription result details
+  transcriptionLanguage = '';
+  transcriptionConfidence = 0;
+  transcriptionDuration = 0;
+
   // Processing states
   isTranscribing = false;
   isUploading = false;
@@ -329,8 +334,10 @@ export class Listen implements OnInit, OnDestroy {
   async transcribeAudio() {
     if (!this.audioBlob) return;
 
+    console.log('Starting transcription...');
     this.isTranscribing = true;
     this.status = 'Transcribing audio...';
+    this.cdr.detectChanges(); // Force UI update
 
     try {
       const formData = new FormData();
@@ -338,20 +345,47 @@ export class Listen implements OnInit, OnDestroy {
       formData.append('audio_file', this.audioBlob, filename);
       formData.append('language', this.selectedLanguage); // Pass selected language
 
-      const response = await this.http.post(`${this.backendUrl}/speech/transcribe-audio`, formData).toPromise() as any;
+      console.log('FormData created, sending request to:', `${this.backendUrl}/speech/transcribe-audio`);
 
-      this.transcript = response?.transcription || 'Transcription failed';
-      const languageName = this.getLanguageDisplayName(response?.language || this.selectedLanguage);
+      // Use fetch instead of Angular HTTP client for better debugging
+      const response = await fetch(`${this.backendUrl}/speech/transcribe-audio`, {
+        method: 'POST',
+        body: formData
+      });
+
+      console.log('Fetch response status:', response.status);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('Parsed response data:', responseData);
+
+      // Store transcription details
+      this.transcript = responseData?.transcription || 'Transcription failed';
+      this.transcriptionLanguage = responseData?.language || this.selectedLanguage;
+      this.transcriptionConfidence = responseData?.confidence || 0;
+      this.transcriptionDuration = responseData?.duration || 0;
+
+      const languageName = this.getLanguageDisplayName(this.transcriptionLanguage);
       this.status = `Transcription complete (${languageName})`;
       this.showMessage('Transcription completed successfully!', 'success');
+
+      console.log('Transcription completed successfully');
 
     } catch (error: any) {
       console.error('Transcription error:', error);
       this.transcript = 'Error: Transcription failed';
+      this.transcriptionLanguage = '';
+      this.transcriptionConfidence = 0;
+      this.transcriptionDuration = 0;
       this.status = 'Transcription failed';
       this.showMessage('Transcription failed: ' + error.message, 'error');
     } finally {
       this.isTranscribing = false;
+      console.log('Setting isTranscribing to false');
+      this.cdr.detectChanges(); // Force UI update
     }
   }
 

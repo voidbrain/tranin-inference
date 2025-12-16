@@ -95,6 +95,19 @@
     <div class="transcript-input">
       <textarea [(ngModel)]="transcript" placeholder="Transcription result will appear here..." readonly></textarea>
     </div>
+
+    <!-- Transcription Details -->
+    <div *ngIf="transcript && transcriptionLanguage" class="transcription-details">
+      <div class="detail-item">
+        <strong>🌐 Language:</strong> {{ getLanguageDisplayName(transcriptionLanguage) }} ({{ transcriptionLanguage }})
+      </div>
+      <div class="detail-item">
+        <strong>🎯 Confidence:</strong> {{ transcriptionConfidence | percent:'1.1-1' }}
+      </div>
+      <div class="detail-item">
+        <strong>⏱️ Duration:</strong> {{ transcriptionDuration | number:'1.1-1' }} seconds
+      </div>
+    </div>
   </div>
 
   <!-- Training Data Upload -->
