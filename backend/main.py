@@ -240,6 +240,24 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
             endpoint_function = post_training_endpoint
 
+        elif path == "/speech/upload-speech-training-data":
+            # Special case: upload speech training data with form fields
+            async def upload_speech_training_data_endpoint(request: Request):
+                try:
+                    # The alt handler parses the request manually
+                    if is_async_method:
+                        return await handler_method(request)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, request)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+            endpoint_function = upload_speech_training_data_endpoint
+
         elif "UploadFile" in str(params):
             # Handle file upload endpoints (UploadFile parameters)
             from fastapi import UploadFile, File, Query

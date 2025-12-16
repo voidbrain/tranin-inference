@@ -18,15 +18,16 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - backend_data:/app/data
-      - backend_models:/app/models
-      - backend_logs:/app/train_logs
+      - ./backend/data:/app/data
+      - ./backend/models:/app/models
+      - ./backend/train_logs:/app/train_logs
     networks:
       - app-network
     restart: unless-stopped
     environment:
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
+    user: "${UID:-1000}:${GID:-1000}"
 
 volumes:
   backend_data:

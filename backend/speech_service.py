@@ -98,8 +98,43 @@ class SpeechService:
         try:
             # Load audio with proper preprocessing
             # Whisper expects 16kHz mono audio
-            librosa = _get_librosa()
-            audio_array, _ = librosa.load(temp_file_path, sr=16000, mono=True)
+            # Handle WebM files by converting to WAV first
+            import subprocess
+            import os
+
+            # Check if file is WebM and convert to WAV if needed
+            if temp_file_path.endswith('.webm'):
+                wav_temp_path = temp_file_path.replace('.webm', '.wav')
+                try:
+                    # Use ffmpeg to extract audio from WebM
+                    subprocess.run([
+                        'ffmpeg', '-y', '-i', temp_file_path,
+                        '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
+                        wav_temp_path
+                    ], check=True, capture_output=True)
+                    temp_file_path = wav_temp_path  # Use the converted file
+                except subprocess.CalledProcessError as e:
+                    raise Exception(f"Failed to convert WebM to WAV: {e}")
+
+            # Try soundfile first, fallback to librosa
+            try:
+                import soundfile as sf
+                audio_array, sample_rate = sf.read(temp_file_path, dtype='float32')
+                # Convert to mono if needed
+                if len(audio_array.shape) > 1:
+                    audio_array = audio_array.mean(axis=1)
+                # Resample to 16kHz if needed
+                if sample_rate != 16000:
+                    librosa = _get_librosa()
+                    audio_array = librosa.resample(audio_array, orig_sr=sample_rate, target_sr=16000)
+            except ImportError:
+                # Fallback to librosa
+                librosa = _get_librosa()
+                audio_array, _ = librosa.load(temp_file_path, sr=16000, mono=True, dtype='float32')
+
+            # Ensure consistent dtype for Whisper
+            import numpy as np
+            audio_array = audio_array.astype(np.float32)
 
             # Run transcription
             options = {
@@ -141,9 +176,14 @@ class SpeechService:
         except Exception as e:
             raise Exception(f"Transcription failed: {str(e)}")
         finally:
-            # Clean up temp file
+            # Clean up temp files
             try:
                 os.unlink(temp_file_path)
+                # Also clean up converted WAV file if it exists
+                if temp_file_path.endswith('.webm'):
+                    wav_temp_path = temp_file_path.replace('.webm', '.wav')
+                    if os.path.exists(wav_temp_path):
+                        os.unlink(wav_temp_path)
             except:
                 pass
 
@@ -166,7 +206,7 @@ class SpeechService:
 
             timestamp = Path(datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
 
-            # Keep original file extension instead of forcing .wav
+            # Keep original file extension - prefer WebM for training data
             if original_filename and '.' in original_filename:
                 original_ext = Path(original_filename).suffix.lower()
                 if original_ext in ['.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac']:
@@ -174,7 +214,7 @@ class SpeechService:
                 else:
                     audio_ext = '.webm'  # fallback
             else:
-                audio_ext = '.webm'  # default
+                audio_ext = '.webm'  # default for training data
 
             audio_filename = f"speech_{timestamp}_{language}_training{audio_ext}"
             transcript_filename = f"speech_{timestamp}_{language}_training.txt"
@@ -947,7 +987,7 @@ class SpeechService:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error loading LoRA adapter: {str(e)}")
 
-    async def upload_speech_training_data_endpoint(self, audio_file: "UploadFile", language: str, transcript: str) -> dict:
+    async def upload_speech_training_data_endpoint(self, audio_file: "UploadFile", language: str = "Form(...)", transcript: str = "Form(...)") -> dict:
         """API endpoint wrapper for uploading speech training data"""
         from fastapi import HTTPException
 
@@ -955,19 +995,12 @@ class SpeechService:
             # Read the audio file
             audio_bytes = await audio_file.read()
 
-            # For multilingual uploads, we need to determine the actual language
-            # Since we don't have transcription context here, we'll use the provided language
-            # But if it's "multi", we'll default to storing in a generic location or detect from filename
+            # Use the provided language directly, unless it's "multi"
             actual_language = language
             if language == "multi":
-                # For multi uploads, check if we can infer language from filename or default to "en"
-                filename = audio_file.filename or ""
-                if "it" in filename.lower():
-                    actual_language = "it"
-                elif "en" in filename.lower():
-                    actual_language = "en"
-                else:
-                    actual_language = "en"  # Default fallback
+                # For multilingual uploads, try to detect language from transcription context
+                # For now, default to English as we don't have transcription here
+                actual_language = "en"
 
             # Process and store the speech training data
             result = await self.process_speech_training_data(
@@ -1247,8 +1280,8 @@ class SpeechService:
                 {
                     "path": "/speech/upload-speech-training-data",
                     "methods": ["POST"],
-                    "handler": "upload_speech_training_data_endpoint",
-                    "params": ["audio_file: UploadFile", "language: str", "transcript: str"]
+                    "handler": "upload_speech_training_data_endpoint_alt",
+                    "params": ["request"]
                 },
                 {
                     "path": "/speech/whisper-fine-tune-lora",

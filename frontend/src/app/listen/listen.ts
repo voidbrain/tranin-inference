@@ -402,10 +402,14 @@ export class Listen implements OnInit, OnDestroy {
       const formData = new FormData();
       const filename = `speech_${Date.now()}_${this.selectedLanguage}.webm`;
       formData.append('audio_file', this.audioBlob, filename);
+      formData.append('language', this.selectedLanguage);
+      formData.append('transcript', this.transcript);
 
-      const url = `${this.backendUrl}/speech/upload-speech-training-data?language=${encodeURIComponent(this.selectedLanguage)}&transcript=${encodeURIComponent(this.transcript)}`;
+      const url = `${this.backendUrl}/speech/upload-speech-training-data`;
 
       console.log('Uploading training data to:', url);
+      console.log('Language:', this.selectedLanguage);
+      console.log('Transcript:', this.transcript);
       const response = await this.http.post(url, formData).toPromise();
 
       console.log('Upload response:', response);
