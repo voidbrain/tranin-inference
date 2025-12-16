@@ -48,6 +48,17 @@
     </div>
   </div>
 
+  <!-- Audio Playback -->
+  <div *ngIf="audioBlob" class="audio-playback-section">
+    <h3>🔊 Listen to Recorded Audio</h3>
+    <div class="audio-player">
+      <audio controls [src]="audioUrl" class="audio-element">
+        Your browser does not support the audio element.
+      </audio>
+      <p class="audio-note">🎵 Play your recorded audio before transcribing</p>
+    </div>
+  </div>
+
   <!-- Transcription Results -->
   <div class="transcription-section">
     <h3>📝 Transcription Result:</h3>

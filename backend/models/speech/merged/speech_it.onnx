@@ -1,5 +1,5 @@
 # ONNX Export of Merged Model
-Source: models/speech/merged/speech_it.pt
+Source: ../merged/speech_it.pt
 Format: ONNX (.onnx)
 Description: ONNX-compatible version for inference optimization
 

@@ -48,6 +48,7 @@ export class Listen implements OnInit, OnDestroy {
 
   // Audio state
   audioBlob: Blob | null = null;
+  audioUrl: string | null = null;
   audioDuration = '0';
   audioSize = '0';
   isStartingRecording = false;
@@ -84,6 +85,12 @@ export class Listen implements OnInit, OnDestroy {
 
     // Stop training status polling
     this.stopTrainingStatusPolling();
+
+    // Clean up audio URL
+    if (this.audioUrl) {
+      URL.revokeObjectURL(this.audioUrl);
+      this.audioUrl = null;
+    }
   }
 
   async startRecording() {
@@ -131,8 +138,11 @@ export class Listen implements OnInit, OnDestroy {
         this.isRecording = false;
         this.isStartingRecording = false;
 
-        this.status = 'Audio recorded successfully';
-        this.showMessage('Audio recorded successfully!', 'success');
+        // Use setTimeout to avoid ExpressionChangedAfterItHasBeenCheckedError
+        setTimeout(() => {
+          this.status = 'Audio recorded successfully';
+          this.showMessage('Audio recorded successfully!', 'success');
+        }, 0);
 
         // Note: We don't stop the stream here to allow immediate restart
         // Stream cleanup will happen on component destroy or next recording
@@ -196,7 +206,13 @@ export class Listen implements OnInit, OnDestroy {
       const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
       const size = (audioBlob.size / 1024 / 1024).toFixed(2); // MB
 
+      // Clean up previous audio URL
+      if (this.audioUrl) {
+        URL.revokeObjectURL(this.audioUrl);
+      }
+
       this.audioBlob = audioBlob;
+      this.audioUrl = URL.createObjectURL(audioBlob);
       this.audioDuration = duration.toString();
       this.audioSize = size;
 
@@ -237,6 +253,12 @@ export class Listen implements OnInit, OnDestroy {
 
     // Clean up media resources
     await this.cleanupRecording();
+
+    // Clean up audio URL
+    if (this.audioUrl) {
+      URL.revokeObjectURL(this.audioUrl);
+      this.audioUrl = null;
+    }
 
     // Reset state
     this.audioBlob = null;

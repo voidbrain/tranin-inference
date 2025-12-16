@@ -157,6 +157,60 @@
   font-weight: 500;
 }
 
+.audio-playback-section {
+  background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+  border-radius: 16px;
+  padding: 25px;
+  margin-bottom: 25px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+
+  h3 {
+    margin-top: 0;
+    font-size: 1.4rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #2c3e50;
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+.audio-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.audio-element {
+  width: 100%;
+  max-width: 400px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.9);
+  outline: none;
+
+  &::-webkit-media-controls-panel {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 8px;
+  }
+
+  &::-webkit-media-controls-current-time-display,
+  &::-webkit-media-controls-time-remaining-display {
+    color: white;
+  }
+}
+
+.audio-note {
+  text-align: center;
+  color: #495057;
+  font-size: 0.95rem;
+  font-style: italic;
+  margin: 0;
+  opacity: 0.8;
+}
+
 .transcription-section {
   background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
   border-radius: 16px;

@@ -65,15 +65,21 @@ class SpeechService:
         self.training_language = None
 
         # Lazy loading - model will be loaded on first use
-        self._load_lora_adapter_if_available()  # Try to load latest LoRA adapter if available
+        # Note: We don't auto-load LoRA adapters here anymore since we have merged models
 
-    def _load_model(self):
-        """Load Whisper model, downloading if necessary"""
+    def _load_model(self, model_path: str = None):
+        """Load Whisper model from local path or download if necessary"""
         try:
-            print("Loading Whisper model (tiny)...")
-            whisper = _get_whisper()
-            self.model = whisper.load_model("tiny")
-            print("Whisper model loaded successfully")
+            if model_path and Path(model_path).exists():
+                print(f"Loading local Whisper model: {model_path}")
+                whisper = _get_whisper()
+                self.model = whisper.load_model(model_path)
+                print("Local Whisper model loaded successfully")
+            else:
+                print("Loading Whisper model (tiny) from remote...")
+                whisper = _get_whisper()
+                self.model = whisper.load_model("tiny")
+                print("Remote Whisper model loaded successfully")
         except Exception as e:
             print(f"Failed to load Whisper model: {e}")
             raise
@@ -84,8 +90,8 @@ class SpeechService:
             raise Exception("Whisper model not loaded")
 
         # Create temporary file for processing
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-            contents = await audio_file.read()
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
+            contents = await audio_file.read()  # Read as bytes (binary)
             temp_file.write(contents)
             temp_file_path = temp_file.name
 
@@ -753,6 +759,10 @@ class SpeechService:
             if not audio_file:
                 raise HTTPException(status_code=400, detail="No audio file provided")
 
+            # Ensure audio_file is an UploadFile object
+            if not hasattr(audio_file, 'read'):
+                raise HTTPException(status_code=400, detail="Invalid audio file format")
+
             # Map frontend language codes to Whisper codes
             # Restrict to only English, Italian, or multilingual (en+it)
             lang_map = {
@@ -893,17 +903,44 @@ class SpeechService:
     def load_language_model_endpoint(self, language: str) -> dict:
         """API endpoint wrapper for loading a language model"""
         try:
-            # For now, just load the base Whisper tiny model
-            # This provides basic transcription capability
-            if self.model is None:
-                print(f"Loading base Whisper model for language: {language}")
+            # Try to load merged models from local storage first
+            model_candidates = [
+                # PT models (preferred for Whisper)
+                (str(self.merged_dir / f"speech_{language}.pt"), "pt"),
+                (str(self.merged_dir / f"speech_multilang.pt"), "pt"),
+            ]
+
+            model_path = None
+            model_format = None
+
+            # Find the first available model
+            for candidate_path, format_type in model_candidates:
+                if Path(candidate_path).exists() and Path(candidate_path).stat().st_size > 1000000:  # >1MB = real model
+                    model_path = candidate_path
+                    model_format = format_type
+                    break
+
+            if model_path:
+                print(f"Loading local merged {model_format.upper()} Whisper model for {language}: {model_path}")
+                try:
+                    self._load_model(model_path)
+                    model_type = Path(model_path).stem
+                    print(f"✓ Successfully loaded merged model: {model_type}")
+                except Exception as load_error:
+                    print(f"Failed to load merged {model_format.upper()} model: {load_error}")
+                    print(f"Falling back to remote tiny model")
+                    self._load_model()
+                    model_type = "whisper-tiny"
+            else:
+                print(f"No valid local merged models found, loading remote Whisper tiny model for {language}")
                 self._load_model()
+                model_type = "whisper-tiny"
 
             if self.model is not None:
                 return {
                     "message": f"Successfully loaded Whisper model for {language}",
                     "language": language,
-                    "model_type": "whisper-tiny",
+                    "model_type": model_type,
                     "status": "success"
                 }
             else:
