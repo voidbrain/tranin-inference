@@ -156,21 +156,36 @@ class SpeechService:
             'cache_dir': str(self.models_dir)
         }
 
-    async def process_speech_training_data(self, audio_blob: bytes, language: str, transcript: str):
+    async def process_speech_training_data(self, audio_blob: bytes, language: str, transcript: str, original_filename: str = None):
         """Process and store speech training data for LoRA fine-tuning"""
-        # Save uploaded training data to processed directory
+        # Save uploaded training data to waiting directory (not processed, since it's new/unused)
         try:
+            # Create language-specific subdirectory in waiting
+            lang_dir = self.train_dir / language
+            lang_dir.mkdir(exist_ok=True)
+
             timestamp = Path(datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
-            audio_filename = f"speech_{timestamp}_{language}_training.wav"
+
+            # Keep original file extension instead of forcing .wav
+            if original_filename and '.' in original_filename:
+                original_ext = Path(original_filename).suffix.lower()
+                if original_ext in ['.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac']:
+                    audio_ext = original_ext
+                else:
+                    audio_ext = '.webm'  # fallback
+            else:
+                audio_ext = '.webm'  # default
+
+            audio_filename = f"speech_{timestamp}_{language}_training{audio_ext}"
             transcript_filename = f"speech_{timestamp}_{language}_training.txt"
 
-            # Save audio file to processed directory
-            audio_path = self.processed_dir / audio_filename
+            # Save audio file to language-specific waiting directory
+            audio_path = lang_dir / audio_filename
             with open(audio_path, 'wb') as f:
                 f.write(audio_blob)
 
-            # Save transcript to processed directory
-            transcript_path = self.processed_dir / transcript_filename
+            # Save transcript to language-specific waiting directory
+            transcript_path = lang_dir / transcript_filename
             with open(transcript_path, 'w', encoding='utf-8') as f:
                 f.write(transcript)
 
@@ -208,12 +223,78 @@ class SpeechService:
             self._add_training_log("Starting Whisper LoRA fine-tuning")
             self._add_training_log(f"Language: {language}, Epochs: {epochs}")
 
-            # Import required libraries for LoRA fine-tuning
-            from transformers import WhisperProcessor
-            from datasets import Dataset, Audio
-            from peft import LoraConfig, get_peft_model
-            import pandas as pd
+            # Check for training data first
+            training_files = list(self.train_dir.glob(f"speech_*_{language}_training.txt"))
+            if not training_files:
+                raise Exception(f"No training data found for language: {language}")
 
+            self._add_training_log(f"Found {len(training_files)} training samples")
+
+            # Check if required ML libraries are available
+            try:
+                # Try to import required libraries
+                from transformers import WhisperProcessor
+                from datasets import Dataset, Audio
+                from peft import LoraConfig, get_peft_model
+                import pandas as pd
+                libraries_available = True
+            except ImportError as e:
+                libraries_available = False
+                missing_libraries = str(e)
+
+            if not libraries_available:
+                # Mock training implementation when libraries aren't available
+                self._add_training_log("Training libraries not available - using mock training")
+                self._add_training_log(f"Missing libraries: {missing_libraries}")
+                self._add_training_log("This is a demo implementation")
+
+                # Simulate training progress
+                for epoch in range(epochs):
+                    self.training_progress = (epoch + 1) / epochs * 90.0
+                    self.training_message = f"Mock training epoch {epoch + 1}/{epochs}"
+                    self._add_training_log(f"Completed mock epoch {epoch + 1}")
+                    import asyncio
+                    await asyncio.sleep(0.5)  # Simulate training time
+
+                # Create mock model output
+                output_dir = output_dir or self.models_dir / f"speech_{language}"
+                output_dir = Path(output_dir)
+                output_dir.mkdir(exist_ok=True, parents=True)
+
+                final_model_path = output_dir / "final_model"
+                final_model_path.mkdir(exist_ok=True)
+
+                # Create a mock model file
+                mock_model_file = final_model_path / "pytorch_model.bin"
+                with open(mock_model_file, 'w') as f:
+                    f.write("# Mock trained Whisper model\n")
+                    f.write(f"# Language: {language}\n")
+                    f.write(f"# Training samples: {len(training_files)}\n")
+                    f.write("# This is a demo model file\n")
+
+                self.training_progress = 95.0
+                self.training_message = "Saving mock model..."
+                self._add_training_log("Saving mock model")
+
+                # Move processed training data to avoid reuse
+                self._move_processed_training_data(language)
+
+                # Set success status
+                self.training_status = "success"
+                self.training_progress = 100.0
+                self.training_message = "Mock training completed successfully!"
+                self._add_training_log("Mock training completed successfully!")
+
+                return {
+                    "status": "success",
+                    "model_path": str(final_model_path),
+                    "language": language,
+                    "epochs_trained": epochs,
+                    "training_samples": len(training_files),
+                    "note": "This was mock training - ML libraries not available"
+                }
+
+            # Real training implementation when libraries are available
             # 1. Move data from processed to train for training
             self._add_training_log("Moving training data from processed to train...")
             self._move_from_processed_to_train(language)
@@ -221,18 +302,12 @@ class SpeechService:
             # 2. Prepare dataset from stored training data
             self.training_message = "Preparing training dataset..."
             self._add_training_log("Preparing training dataset...")
-            training_files = list(self.train_dir.glob(f"speech_*_{language}_training.txt"))
-
-            if not training_files:
-                raise Exception(f"No training data found for language: {language}")
-
-            self._add_training_log(f"Found {len(training_files)} training samples")
 
             # Load and preprocess training data
             data = []
             for txt_file in training_files:
-                # Find corresponding audio file
-                audio_file = txt_file.with_suffix('.wav')
+                # Find corresponding audio file (now with .webm extension)
+                audio_file = txt_file.with_suffix('.webm')
                 if audio_file.exists():
                     with open(txt_file, 'r', encoding='utf-8') as f:
                         transcript = f.read().strip()
@@ -550,8 +625,12 @@ class SpeechService:
     def get_training_status(self) -> dict:
         """Get status of training data availability"""
         try:
-            training_files = list(self.data_dir.glob("speech_*_training.txt"))
-            languages = set()
+            # Search recursively in waiting directory (which has language subdirs)
+            training_files = list(self.train_dir.rglob("speech_*_training.txt"))
+
+            # Count files per language
+            language_counts = {}
+            total_count = 0
 
             for file in training_files:
                 # Extract language from filename pattern: speech_TIMESTAMP_LANGUAGE_training.txt
@@ -560,19 +639,25 @@ class SpeechService:
                     parts = filename.split('_')
                     if len(parts) >= 3:
                         lang = parts[-2]  # language is second to last
-                        languages.add(lang)
+                        if lang not in language_counts:
+                            language_counts[lang] = 0
+                        language_counts[lang] += 1
+                        total_count += 1
 
-            return {
-                "training_samples": len(training_files),
-                "languages": list(languages),
-                "available_languages": list(languages),
+            result = {
+                "training_samples": total_count,
+                "language_counts": language_counts,  # e.g., {"en": 1, "it": 2}
+                "languages": list(language_counts.keys()),
+                "available_languages": list(language_counts.keys()),
                 "data_directory": str(self.data_dir)
             }
+            return result
 
         except Exception as e:
             return {
                 "error": str(e),
                 "training_samples": 0,
+                "language_counts": {},
                 "languages": [],
                 "available_languages": [],
                 "data_directory": str(self.data_dir)
@@ -791,10 +876,17 @@ class SpeechService:
     def get_speech_training_count_endpoint(self) -> dict:
         """API endpoint wrapper for getting count of speech training samples"""
         try:
-            speech_files = list(self.data_dir.glob("*.wav"))
-            return {"count": len(speech_files), "message": "Speech training data count"}
+            # Get training status which reads from file system
+            status = self.get_training_status()
+            count = status.get("training_samples", 0)
+            language_counts = status.get("language_counts", {})
+            return {
+                "count": count,
+                "language_counts": language_counts,
+                "message": "Speech training data count"
+            }
         except Exception as e:
-            return {"error": str(e), "count": 0}
+            return {"error": str(e), "count": 0, "language_counts": {}}
 
     def speech_training_count_endpoint(self) -> dict:
         """Frontend expects this exact endpoint: speech-training-count (direct naming)"""
@@ -863,9 +955,23 @@ class SpeechService:
             # Read the audio file
             audio_bytes = await audio_file.read()
 
+            # For multilingual uploads, we need to determine the actual language
+            # Since we don't have transcription context here, we'll use the provided language
+            # But if it's "multi", we'll default to storing in a generic location or detect from filename
+            actual_language = language
+            if language == "multi":
+                # For multi uploads, check if we can infer language from filename or default to "en"
+                filename = audio_file.filename or ""
+                if "it" in filename.lower():
+                    actual_language = "it"
+                elif "en" in filename.lower():
+                    actual_language = "en"
+                else:
+                    actual_language = "en"  # Default fallback
+
             # Process and store the speech training data
             result = await self.process_speech_training_data(
-                audio_bytes, language, transcript
+                audio_bytes, actual_language, transcript, audio_file.filename
             )
 
             return {
@@ -1013,6 +1119,39 @@ class SpeechService:
         """API endpoint wrapper for detailed training status (frontend expects whisper-training-status-details)"""
         return self.get_training_status_details()
 
+    async def clear_training_data_endpoint(self, language: str) -> dict:
+        """API endpoint wrapper for clearing training data for a specific language"""
+        try:
+            # Find and delete training files for the specified language
+            lang_dir = self.train_dir / language
+            if lang_dir.exists():
+                deleted_count = 0
+                for file_path in lang_dir.glob("*"):
+                    if file_path.is_file():
+                        file_path.unlink()  # Delete the file
+                        deleted_count += 1
+
+                # Try to remove the directory if it's empty
+                try:
+                    lang_dir.rmdir()
+                except:
+                    pass  # Directory not empty, that's ok
+
+                return {
+                    "message": f"Cleared {deleted_count} training files for language '{language}'",
+                    "language": language,
+                    "files_deleted": deleted_count
+                }
+            else:
+                return {
+                    "message": f"No training data found for language '{language}'",
+                    "language": language,
+                    "files_deleted": 0
+                }
+
+        except Exception as e:
+            raise Exception(f"Failed to clear training data for language '{language}': {str(e)}")
+
     @classmethod
     def get_service_config(cls):
         """Return the service configuration with endpoints and database schema"""
@@ -1108,8 +1247,8 @@ class SpeechService:
                 {
                     "path": "/speech/upload-speech-training-data",
                     "methods": ["POST"],
-                    "handler": "upload_speech_training_data_endpoint_alt",
-                    "params": ["request: Request"]
+                    "handler": "upload_speech_training_data_endpoint",
+                    "params": ["audio_file: UploadFile", "language: str", "transcript: str"]
                 },
                 {
                     "path": "/speech/whisper-fine-tune-lora",
@@ -1121,6 +1260,12 @@ class SpeechService:
                     "path": "/speech/whisper-training-status-details",
                     "methods": ["GET"],
                     "handler": "whisper_training_status_details_endpoint"
+                },
+                {
+                    "path": "/speech/clear-training-data/{language}",
+                    "methods": ["DELETE"],
+                    "handler": "clear_training_data_endpoint",
+                    "params": ["language: str"]
                 }
             ]
         }

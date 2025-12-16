@@ -74,6 +74,7 @@ export class Listen implements OnInit, OnDestroy {
   trainingLogs: string[] = [];
   trainingIntervalId: any = null;
   trainingDataCount = 0;
+  languageCounts: { [key: string]: number } = {}; // e.g., {"en": 1, "it": 2}
 
   private mediaRecorder: MediaRecorder | null = null;
   private audioChunks: Blob[] = [];
@@ -395,19 +396,31 @@ export class Listen implements OnInit, OnDestroy {
 
     this.isUploading = true;
     this.status = 'Uploading audio for training...';
+    this.cdr.detectChanges(); // Force UI update
 
     try {
       const formData = new FormData();
-      const filename = `speech_${Date.now()}_${this.selectedLanguage}.wav`;
+      const filename = `speech_${Date.now()}_${this.selectedLanguage}.webm`;
       formData.append('audio_file', this.audioBlob, filename);
-      formData.append('language', this.selectedLanguage);
-      formData.append('transcript', this.transcript);
 
-      const response = await this.http.post(`${this.backendUrl}/speech/upload-speech-training-data`, formData).toPromise();
+      const url = `${this.backendUrl}/speech/upload-speech-training-data?language=${encodeURIComponent(this.selectedLanguage)}&transcript=${encodeURIComponent(this.transcript)}`;
 
+      console.log('Uploading training data to:', url);
+      const response = await this.http.post(url, formData).toPromise();
+
+      console.log('Upload response:', response);
       this.status = 'Audio uploaded for speech training';
       this.showMessage('Audio uploaded for training successfully!', 'success');
-      this.updateTrainingDataCount();
+
+      // Update training count after successful upload
+      console.log('DEBUG: About to call updateTrainingDataCount...');
+      try {
+        await this.updateTrainingDataCount();
+        console.log('DEBUG: updateTrainingDataCount completed successfully');
+        console.log('DEBUG: Current trainingDataCount value:', this.trainingDataCount);
+      } catch (error) {
+        console.error('DEBUG: updateTrainingDataCount failed:', error);
+      }
 
     } catch (error: any) {
       console.error('Upload error:', error);
@@ -415,6 +428,7 @@ export class Listen implements OnInit, OnDestroy {
       this.showMessage('Upload failed: ' + error.message, 'error');
     } finally {
       this.isUploading = false;
+      this.cdr.detectChanges(); // Force UI update
     }
   }
 
@@ -485,20 +499,131 @@ export class Listen implements OnInit, OnDestroy {
     }
   }
 
-  async resetTrainingData() {
-    // This would need a separate endpoint to clear speech training data
-    // For now, just reset the local count
-    this.trainingDataCount = 0;
-    this.showMessage('Training data count reset (backend cleanup needed)', 'success');
+  async resetTrainingData(language: string = this.selectedLanguage) {
+    const count = this.languageCounts[language] || 0;
+    if (count === 0) return;
+
+    try {
+      // Clear training data for the specified language
+      const response = await this.http.delete<{message: string, language: string, files_deleted: number}>(
+        `${this.backendUrl}/speech/clear-training-data/${language}`
+      ).toPromise();
+
+      console.log('Clear training data response:', response);
+
+      // Update the training data count after successful deletion
+      await this.updateTrainingDataCount();
+
+      const deletedCount = response?.files_deleted || 0;
+      const langName = this.getLanguageDisplayName(language);
+      this.showMessage(`Cleared ${deletedCount} training files for ${langName}`, 'success');
+
+    } catch (error: any) {
+      console.error('Clear training data error:', error);
+      this.showMessage('Failed to clear training data: ' + error.message, 'error');
+    }
+  }
+
+  async startEnglishTraining() {
+    if ((this.languageCounts['en'] || 0) === 0) return;
+
+    this.isTraining = true;
+    this.status = 'Starting English LoRA fine-tuning...';
+    this.cdr.detectChanges(); // Force UI update
+
+    try {
+      const trainingRequest = {
+        language: 'en',
+        epochs: 5, // Default epochs for LoRA training
+        use_lora: true // Always use LoRA for speech training
+      };
+
+      const response = await this.http.post(`${this.backendUrl}/speech/whisper-fine-tune-lora`, trainingRequest).toPromise();
+
+      this.status = 'English LoRA training started in background';
+      this.showMessage('English Whisper LoRA fine-tuning has started! Check logs for progress.', 'success');
+
+      // Start polling for training status
+      this.startTrainingStatusPolling();
+
+    } catch (error: any) {
+      console.error('English training start error:', error);
+      this.status = 'English training start failed';
+      this.showMessage('Failed to start English training: ' + error.message, 'error');
+      this.isTraining = false; // Reset training state on error
+      this.cdr.detectChanges(); // Force UI update
+    } finally {
+      // Only reset if not already reset in catch block
+      if (this.isTraining) {
+        this.isTraining = false;
+        this.cdr.detectChanges(); // Force UI update
+      }
+    }
+  }
+
+  async startItalianTraining() {
+    if ((this.languageCounts['it'] || 0) === 0) return;
+
+    this.isTraining = true;
+    this.status = 'Starting Italian LoRA fine-tuning...';
+    this.cdr.detectChanges(); // Force UI update
+
+    try {
+      const trainingRequest = {
+        language: 'it',
+        epochs: 5, // Default epochs for LoRA training
+        use_lora: true // Always use LoRA for speech training
+      };
+
+      const response = await this.http.post(`${this.backendUrl}/speech/whisper-fine-tune-lora`, trainingRequest).toPromise();
+
+      this.status = 'Italian LoRA training started in background';
+      this.showMessage('Italian Whisper LoRA fine-tuning has started! Check logs for progress.', 'success');
+
+      // Start polling for training status
+      this.startTrainingStatusPolling();
+
+    } catch (error: any) {
+      console.error('Italian training start error:', error);
+      this.status = 'Italian training start failed';
+      this.showMessage('Failed to start Italian training: ' + error.message, 'error');
+      this.isTraining = false; // Reset training state on error
+      this.cdr.detectChanges(); // Force UI update
+    } finally {
+      // Only reset if not already reset in catch block
+      if (this.isTraining) {
+        this.isTraining = false;
+        this.cdr.detectChanges(); // Force UI update
+      }
+    }
   }
 
   private async updateTrainingDataCount() {
     try {
-      // For now, just show a static count until we implement the speech training backend
-      const response = await this.http.get<{count: number}>(`${this.backendUrl}/speech/training-count`).toPromise();
-      this.trainingDataCount = response?.count || 0;
-    } catch {
+      console.log('DEBUG: Fetching training count from backend...');
+      const response = await this.http.get<{count: number, language_counts: {[key: string]: number}, message: string}>(`${this.backendUrl}/speech/training-count`).toPromise();
+      console.log('DEBUG: Backend response:', response);
+      const newCount = response?.count || 0;
+      const languageCounts = response?.language_counts || {};
+
+      console.log('DEBUG: Setting trainingDataCount to:', newCount);
+      console.log('DEBUG: Setting languageCounts to:', languageCounts);
+
+      // Update both properties
+      this.trainingDataCount = newCount;
+      this.languageCounts = languageCounts;
+
+      // Force Angular change detection
+      this.cdr.detectChanges();
+
+      console.log('DEBUG: trainingDataCount is now:', this.trainingDataCount);
+      console.log('DEBUG: languageCounts is now:', this.languageCounts);
+
+    } catch (error) {
+      console.error('DEBUG: Failed to update training count:', error);
       this.trainingDataCount = 0;
+      this.languageCounts = {};
+      this.cdr.detectChanges();
     }
   }
 
@@ -575,6 +700,11 @@ export class Listen implements OnInit, OnDestroy {
       this.status = 'Failed to load audio file';
       this.showMessage('Failed to load audio file', 'error');
     }
+  }
+
+  // Get language keys for template iteration
+  getLanguageKeys(): string[] {
+    return Object.keys(this.languageCounts);
   }
 
   // Format file size for display

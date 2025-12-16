@@ -93,7 +93,10 @@
     </div>
 
     <div class="transcript-input">
-      <textarea [(ngModel)]="transcript" placeholder="Transcription result will appear here..." readonly></textarea>
+      <textarea [(ngModel)]="transcript" placeholder="Transcription result will appear here..." [readonly]="!transcript"></textarea>
+      <div *ngIf="transcript" class="edit-controls">
+        <small>💡 Edit the transcription if needed, then upload for training</small>
+      </div>
     </div>
 
     <!-- Transcription Details -->
@@ -110,34 +113,63 @@
     </div>
   </div>
 
-  <!-- Training Data Upload -->
+  <!-- Training Data Upload - English -->
   <div class="training-section">
-    <h3>🚀 Speech Recognition Training</h3>
-    <p>Upload your recorded audio for LoRA fine-tuning the Whisper model.</p>
+    <h3>🚀 English Speech Recognition Training</h3>
+    <p>Upload your recorded audio for LoRA fine-tuning the English Whisper model.</p>
 
     <div class="training-controls">
-      <button (click)="uploadForTraining()" [disabled]="!audioBlob || isUploading" class="upload-btn">
-        <span *ngIf="!isUploading">⬆️ Upload for Training</span>
+      <button (click)="uploadForTraining()" [disabled]="!audioBlob || isUploading || selectedLanguage !== 'en'" class="upload-btn">
+        <span *ngIf="!isUploading">⬆️ Upload for English Training</span>
         <span *ngIf="isUploading">⏳ Uploading...</span>
       </button>
 
-      <button (click)="startLoraTraining()" [disabled]="trainingDataCount === 0 || isTraining" class="train-btn">
-        <span *ngIf="!isTraining">🎯 Start LoRA Training</span>
+      <button (click)="startEnglishTraining()" [disabled]="(languageCounts['en'] || 0) === 0 || isTraining" class="train-btn">
+        <span *ngIf="!isTraining">🎯 Start English LoRA Training</span>
         <span *ngIf="isTraining">⏳ Training in Progress...</span>
       </button>
 
-      <button (click)="resetTrainingData()" [disabled]="trainingDataCount === 0" class="reset-training-btn">
-        🗑️ Clear Training Data ({{ trainingDataCount }} items)
+      <button (click)="resetTrainingData('en')" [disabled]="(languageCounts['en'] || 0) === 0" class="reset-training-btn">
+        🗑️ Clear English Training Data ({{ languageCounts['en'] || 0 }} items)
       </button>
     </div>
 
     <div class="training-info">
-      <p><strong>Training Status:</strong> {{
-        trainingDataCount === 0 ? 'No training data uploaded yet' :
-        trainingDataCount > 0 ? `Ready for training (${trainingDataCount} audio samples)` :
-        'Ready'
+      <p><strong>English Training Status:</strong> {{
+        (languageCounts['en'] || 0) === 0 ? 'No English training data uploaded yet' :
+        `Ready for English training (${languageCounts['en'] || 0} audio samples)`
       }}</p>
-      <p><small>Upload multiple audio recordings to create a speech recognition training dataset. Then start LoRA fine-tuning to improve Whisper's accuracy for your voice and use case.</small></p>
+      <p><small>Upload English audio recordings to create a speech recognition training dataset. Then start LoRA fine-tuning to improve Whisper's accuracy for English.</small></p>
+    </div>
+  </div>
+
+  <!-- Training Data Upload - Italian -->
+  <div class="training-section">
+    <h3>🚀 Italian Speech Recognition Training</h3>
+    <p>Upload your recorded audio for LoRA fine-tuning the Italian Whisper model.</p>
+
+    <div class="training-controls">
+      <button (click)="uploadForTraining()" [disabled]="!audioBlob || isUploading || selectedLanguage !== 'it'" class="upload-btn">
+        <span *ngIf="!isUploading">⬆️ Upload for Italian Training</span>
+        <span *ngIf="isUploading">⏳ Uploading...</span>
+      </button>
+
+      <button (click)="startItalianTraining()" [disabled]="(languageCounts['it'] || 0) === 0 || isTraining" class="train-btn">
+        <span *ngIf="!isTraining">🎯 Start Italian LoRA Training</span>
+        <span *ngIf="isTraining">⏳ Training in Progress...</span>
+      </button>
+
+      <button (click)="resetTrainingData('it')" [disabled]="(languageCounts['it'] || 0) === 0" class="reset-training-btn">
+        🗑️ Clear Italian Training Data ({{ languageCounts['it'] || 0 }} items)
+      </button>
+    </div>
+
+    <div class="training-info">
+      <p><strong>Italian Training Status:</strong> {{
+        (languageCounts['it'] || 0) === 0 ? 'No Italian training data uploaded yet' :
+        `Ready for Italian training (${languageCounts['it'] || 0} audio samples)`
+      }}</p>
+      <p><small>Upload Italian audio recordings to create a speech recognition training dataset. Then start LoRA fine-tuning to improve Whisper's accuracy for Italian.</small></p>
     </div>
   </div>
 

@@ -204,7 +204,26 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
     elif methods == ["POST"] and params:
         from fastapi import Request
-        if params[0] == "training_data: dict":
+        if params == ["training_data: dict", "background_tasks: BackgroundTasks"]:
+            # Special case: training data dict + background tasks dependency injection
+            from fastapi import BackgroundTasks
+
+            async def post_training_with_background(training_data: dict, background_tasks: BackgroundTasks):
+                try:
+                    if is_async_method:
+                        return await handler_method(training_data, background_tasks)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, training_data, background_tasks)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Training data error: {str(e)}")
+
+            endpoint_function = post_training_with_background
+
+        elif params[0] == "training_data: dict":
             async def post_training_endpoint(request: Request):
                 try:
                     data = await request.json()
@@ -264,6 +283,27 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
                 endpoint_function = post_mixed_endpoint
 
+            elif len(upload_params) == 1 and len(query_params) == 2:
+                # Special case: one file upload + two query parameters
+                upload_param = upload_params[0]
+                query_param1 = query_params[0]
+                query_param2 = query_params[1]
+
+                async def post_mixed_endpoint_2qp(audio_file: UploadFile = File(...), language: str = Query(...), transcript: str = Query(...)):
+                    try:
+                        if is_async_method:
+                            return await handler_method(audio_file, language, transcript)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, audio_file, language, transcript)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                endpoint_function = post_mixed_endpoint_2qp
+
             elif len(upload_params) == 1 and len(query_params) == 0:
                 # Standard file upload only
                 param_name = upload_params[0]
@@ -298,6 +338,23 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                         raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
 
                 endpoint_function = post_file_upload_fallback
+
+        elif params == ["training_data: dict", "background_tasks: BackgroundTasks"]:
+            # Special case: training data dict + background tasks
+            async def post_training_with_background(training_data: dict, background_tasks: "BackgroundTasks"):
+                try:
+                    if is_async_method:
+                        return await handler_method(training_data, background_tasks)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, training_data, background_tasks)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Training data error: {str(e)}")
+
+            endpoint_function = post_training_with_background
 
         else:
             # Handle generic POST endpoints with parameters
