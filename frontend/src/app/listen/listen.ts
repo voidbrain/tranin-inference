@@ -345,10 +345,11 @@ export class Listen implements OnInit, OnDestroy {
       formData.append('audio_file', this.audioBlob, filename);
       formData.append('language', this.selectedLanguage); // Pass selected language
 
-      console.log('FormData created, sending request to:', `${this.backendUrl}/speech/transcribe-audio`);
+      const url = `${this.backendUrl}/speech/transcribe-audio?language=${encodeURIComponent(this.selectedLanguage)}`;
+      console.log('FormData created, sending request to:', url);
 
       // Use fetch instead of Angular HTTP client for better debugging
-      const response = await fetch(`${this.backendUrl}/speech/transcribe-audio`, {
+      const response = await fetch(url, {
         method: 'POST',
         body: formData
       });

@@ -758,15 +758,12 @@ class SpeechService:
             if not audio_file:
                 raise HTTPException(status_code=400, detail="No audio file provided")
 
-            print(f"Transcription request: language={language}")
-
             # Map frontend language codes to Whisper codes
             # For specific languages, force that language
             # For multilingual, allow auto-detection but restrict to supported languages
             if language == 'multi':
                 whisper_lang = None  # Auto-detect
                 restrict_to_supported = True
-                print("Using multilingual mode")
             else:
                 # Force the selected language
                 lang_map = {
@@ -775,11 +772,8 @@ class SpeechService:
                 }
                 whisper_lang = lang_map.get(language, 'en')  # Default to English if unknown
                 restrict_to_supported = False
-                print(f"Using specific language mode: whisper_lang={whisper_lang}, restrict_to_supported={restrict_to_supported}")
 
-            result = await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=restrict_to_supported)
-            print(f"Transcription result: {result}")
-            return result
+            return await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=restrict_to_supported)
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Transcription endpoint error: {str(e)}")
