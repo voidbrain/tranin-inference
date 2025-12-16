@@ -127,13 +127,7 @@ export class Listen implements OnInit, OnDestroy {
       };
 
       this.mediaRecorder.onstop = () => {
-        const duration = Math.round((Date.now() - this.recordingStartTime) / 1000);
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-        const size = (audioBlob.size / 1024 / 1024).toFixed(2); // MB
-
-        this.audioBlob = audioBlob;
-        this.audioDuration = duration.toString();
-        this.audioSize = size;
+        this.updateAudioInfo();
         this.isRecording = false;
         this.isStartingRecording = false;
 
@@ -172,21 +166,42 @@ export class Listen implements OnInit, OnDestroy {
   }
 
   stopRecording() {
-    if (this.mediaRecorder && this.isRecording) {
+    if (!this.isRecording) return;
+
+    // Immediately disable recording flag to prevent multiple clicks
+    this.isRecording = false;
+    this.status = 'Stopping recording...';
+
+    if (this.mediaRecorder) {
       this.mediaRecorder.stop();
 
       // Set a timeout to force stop if onstop callback doesn't fire
       setTimeout(() => {
-        if (this.isRecording) {
+        if (this.audioBlob === null && this.stream) {
           console.warn('MediaRecorder onstop callback did not fire, forcing cleanup');
           this.forceStopRecording();
         }
       }, 500);
 
-    } else if (this.isRecording) {
+    } else {
       // If mediaRecorder is not available but recording is supposedly active,
       // force cleanup
       this.forceStopRecording();
+    }
+  }
+
+  private updateAudioInfo() {
+    if (this.audioChunks.length > 0) {
+      const duration = Math.round((Date.now() - this.recordingStartTime) / 1000);
+      const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+      const size = (audioBlob.size / 1024 / 1024).toFixed(2); // MB
+
+      this.audioBlob = audioBlob;
+      this.audioDuration = duration.toString();
+      this.audioSize = size;
+
+      // Trigger change detection to update the UI
+      this.cdr.detectChanges();
     }
   }
 
@@ -204,13 +219,7 @@ export class Listen implements OnInit, OnDestroy {
 
     // Save any accumulated chunks as audio blob
     if (this.audioChunks.length > 0) {
-      const duration = Math.round((Date.now() - this.recordingStartTime) / 1000);
-      const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-      const size = (audioBlob.size / 1024 / 1024).toFixed(2);
-
-      this.audioBlob = audioBlob;
-      this.audioDuration = duration.toString();
-      this.audioSize = size;
+      this.updateAudioInfo();
       this.status = 'Audio recorded successfully (forced stop)';
       this.showMessage('Audio recorded successfully!', 'success');
     } else {
@@ -296,13 +305,15 @@ export class Listen implements OnInit, OnDestroy {
 
     try {
       const formData = new FormData();
-      const filename = `audio_${Date.now()}.wav`;
+      const filename = `audio_${Date.now()}.webm`; // Use correct extension
       formData.append('audio_file', this.audioBlob, filename);
+      formData.append('language', this.selectedLanguage); // Pass selected language
 
-      const response = await this.http.post<{transcription: string}>(`${this.backendUrl}/speech/transcribe-audio`, formData).toPromise();
+      const response = await this.http.post(`${this.backendUrl}/speech/transcribe-audio`, formData).toPromise() as any;
 
       this.transcript = response?.transcription || 'Transcription failed';
-      this.status = 'Transcription complete';
+      const languageName = this.getLanguageDisplayName(response?.language || this.selectedLanguage);
+      this.status = `Transcription complete (${languageName})`;
       this.showMessage('Transcription completed successfully!', 'success');
 
     } catch (error: any) {

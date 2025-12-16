@@ -724,9 +724,16 @@ class SpeechService:
     # ===== SPEECH-SPECIFIC ENDPOINT METHODS =====
     # These methods wrap the service functionality for API endpoints
 
-    async def transcribe_audio_endpoint(self, audio_file: "UploadFile") -> dict:
+    async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str = None) -> dict:
         """API endpoint wrapper for transcribing audio files"""
-        return await self.transcribe_audio(audio_file)
+        # Map frontend language codes to Whisper codes
+        lang_map = {
+            'en': 'en',
+            'it': 'it',
+            'multi': 'en',  # Use English as base for multilingual
+        }
+        whisper_lang = lang_map.get(language, None) if language != 'multi' else None
+        return await self.transcribe_audio(audio_file, whisper_lang)
     def get_whisper_status_endpoint(self) -> dict:
         """API endpoint wrapper for getting Whisper service status"""
         return self.get_status()
