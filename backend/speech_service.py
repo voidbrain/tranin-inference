@@ -78,7 +78,7 @@ class SpeechService:
             print(f"Failed to load Whisper model: {e}")
             raise
 
-    async def transcribe_audio(self, audio_file: UploadFile, language: str = None) -> dict:
+    async def transcribe_audio(self, audio_file: UploadFile, language: str = None, restrict_to_supported_langs: bool = False) -> dict:
         """Transcribe audio file using Whisper"""
         if not self.model:
             raise Exception("Whisper model not loaded")
@@ -102,11 +102,27 @@ class SpeechService:
                 'verbose': False
             }
 
+            # If restricting to supported languages (en/it only), add language detection restriction
+            if restrict_to_supported_langs and language is None:
+                # For multilingual mode, we still allow auto-detection but should prefer en/it
+                # Whisper doesn't have a direct "allowed languages" parameter, but we can post-process
+                pass
+
             result = self.model.transcribe(audio_array, **options)
+
+            # Post-process language detection to restrict to supported languages
+            detected_lang = result.get('language', language)
+            if restrict_to_supported_langs and detected_lang not in ['en', 'it']:
+                # Force to English as fallback since it's more common
+                print(f"Detected unsupported language '{detected_lang}', forcing to English for multilingual mode")
+                detected_lang = 'en'
+                # Re-run transcription with English forced
+                options['language'] = 'en'
+                result = self.model.transcribe(audio_array, **options)
 
             return {
                 'transcription': result['text'].strip(),
-                'language': result.get('language', language),
+                'language': detected_lang,
                 'confidence': result.get('confidence', 0.0),
                 'duration': len(audio_array) / 16000,
                 'filename': audio_file.filename
@@ -724,16 +740,31 @@ class SpeechService:
     # ===== SPEECH-SPECIFIC ENDPOINT METHODS =====
     # These methods wrap the service functionality for API endpoints
 
-    async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str = None) -> dict:
+    async def transcribe_audio_endpoint(self, request) -> dict:
         """API endpoint wrapper for transcribing audio files"""
-        # Map frontend language codes to Whisper codes
-        lang_map = {
-            'en': 'en',
-            'it': 'it',
-            'multi': 'en',  # Use English as base for multilingual
-        }
-        whisper_lang = lang_map.get(language, None) if language != 'multi' else None
-        return await self.transcribe_audio(audio_file, whisper_lang)
+        from fastapi import HTTPException, Request
+
+        try:
+            # Parse multipart form data
+            form_data = await request.form()
+            audio_file = form_data.get("audio_file")
+            language = form_data.get("language") or "multi"
+
+            if not audio_file:
+                raise HTTPException(status_code=400, detail="No audio file provided")
+
+            # Map frontend language codes to Whisper codes
+            # Restrict to only English, Italian, or multilingual (en+it)
+            lang_map = {
+                'en': 'en',
+                'it': 'it',
+                'multi': None,  # Allow auto-detection but restrict to en/it only
+            }
+            whisper_lang = lang_map.get(language, None)
+            return await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=(language == 'multi'))
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Transcription endpoint error: {str(e)}")
     def get_whisper_status_endpoint(self) -> dict:
         """API endpoint wrapper for getting Whisper service status"""
         return self.get_status()
@@ -1034,7 +1065,7 @@ class SpeechService:
                     "path": "/speech/transcribe-audio",
                     "methods": ["POST"],
                     "handler": "transcribe_audio_endpoint",
-                    "params": ["audio_file: UploadFile"]
+                    "params": ["request: Request"]
                 },
                 {
                     "path": "/speech/upload-speech-training-data",
