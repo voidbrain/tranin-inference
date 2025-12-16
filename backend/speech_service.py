@@ -750,7 +750,7 @@ class SpeechService:
     # ===== SPEECH-SPECIFIC ENDPOINT METHODS =====
     # These methods wrap the service functionality for API endpoints
 
-    async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str = "multi") -> dict:
+    async def transcribe_audio_endpoint(self, audio_file: "UploadFile", language: str) -> dict:
         """API endpoint wrapper for transcribing audio files"""
         from fastapi import HTTPException
 
@@ -758,12 +758,15 @@ class SpeechService:
             if not audio_file:
                 raise HTTPException(status_code=400, detail="No audio file provided")
 
+            print(f"Transcription request received with language parameter: {language}")
+
             # Map frontend language codes to Whisper codes
             # For specific languages, force that language
             # For multilingual, allow auto-detection but restrict to supported languages
             if language == 'multi':
                 whisper_lang = None  # Auto-detect
                 restrict_to_supported = True
+                print("Using multilingual mode")
             else:
                 # Force the selected language
                 lang_map = {
@@ -772,10 +775,14 @@ class SpeechService:
                 }
                 whisper_lang = lang_map.get(language, 'en')  # Default to English if unknown
                 restrict_to_supported = False
+                print(f"Using specific language mode: whisper_lang={whisper_lang}, restrict_to_supported={restrict_to_supported}")
 
-            return await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=restrict_to_supported)
+            result = await self.transcribe_audio(audio_file, whisper_lang, restrict_to_supported_langs=restrict_to_supported)
+            print(f"Transcription result: {result}")
+            return result
 
         except Exception as e:
+            print(f"Transcription endpoint error: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Transcription endpoint error: {str(e)}")
     def get_whisper_status_endpoint(self) -> dict:
         """API endpoint wrapper for getting Whisper service status"""
@@ -1096,7 +1103,7 @@ class SpeechService:
                     "path": "/speech/transcribe-audio",
                     "methods": ["POST"],
                     "handler": "transcribe_audio_endpoint",
-                    "params": ["audio_file: UploadFile", "language: str"]
+                    "params": ["audio_file: UploadFile", "language"]
                 },
                 {
                     "path": "/speech/upload-speech-training-data",
