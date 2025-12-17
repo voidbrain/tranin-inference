@@ -4,9 +4,9 @@
   <!-- Backend Connection Status -->
   <div class="connection-status">
     <span class="connection-indicator">
-      <span class="led" [class]="getWebSocketService().getEnhancedConnectionStatusString('speech-training')"></span>
-      Backend: {{ getWebSocketService().getEnhancedConnectionStatusString('speech-training') === 'connected' ? 'Connected' :
-                  getWebSocketService().getEnhancedConnectionStatusString('speech-training') === 'connecting' ? 'Connecting...' :
+      <span class="led" [class]="getWebSocketService().getBackendConnectionState()"></span>
+      Backend: {{ getWebSocketService().getBackendConnectionState() === 'connected' ? 'Connected' :
+                  getWebSocketService().getBackendConnectionState() === 'connecting' ? 'Connecting...' :
                   'Disconnected' }}
     </span>
   </div>

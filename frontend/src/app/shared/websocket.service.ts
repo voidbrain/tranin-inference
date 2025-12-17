@@ -51,6 +51,12 @@ export class WebSocketService {
     socket.onmessage = (event) => {
       try {
         const data: WebSocketMessage = JSON.parse(event.data);
+
+        // Handle backend status updates
+        if (data.type === 'backend_status_update') {
+          this.handleBackendStatusUpdate(data);
+        }
+
         subject.next(data);
       } catch (error) {
         console.error(`Failed to parse WebSocket message for ${endpointId}:`, error);
@@ -136,12 +142,14 @@ export class WebSocketService {
   }
 
   /**
-   * Check if backend is fully initialized and ready
-   * This polls the backend health endpoint to determine if initialization is complete
+   * Backend connection states
+   * disconnected: Cannot reach backend at all
+   * connecting: Backend responding but not fully ready
+   * connected: Backend fully ready
    */
-  private backendReady = false;
+  private backendConnectionState: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
   private backendReadyCheckInterval: any = null;
-  private backendReadySubject = new BehaviorSubject<boolean>(false);
+  private backendStateSubject = new BehaviorSubject<'disconnected' | 'connecting' | 'connected'>('disconnected');
 
   startBackendReadyCheck() {
     if (this.backendReadyCheckInterval) {
@@ -153,34 +161,62 @@ export class WebSocketService {
       ? 'http://localhost:8000'
       : 'http://backend:8000';
 
-    // Check backend readiness every 2 seconds (only when backend is not ready)
+    // Check backend status every 2 seconds
     this.backendReadyCheckInterval = setInterval(async () => {
-      // Only poll if backend is not ready yet
-      if (!this.backendReady) {
-        try {
-          const response = await fetch(`${backendUrl}/health`, {
-            method: 'GET',
-            signal: AbortSignal.timeout(5000) // 5 second timeout
-          });
-          if (response.ok) {
-            const data = await response.json();
-            // Backend is ready when it returns healthy status and has services
-            const wasReady = this.backendReady;
-            this.backendReady = data.status === 'healthy' && data.services && data.services.length > 0;
+      try {
+        const response = await fetch(`${backendUrl}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(5000) // 5 second timeout
+        });
 
-            // If backend just became ready, emit the change and we can stop polling since WebSocket will handle status now
-            if (this.backendReady && !wasReady) {
-              console.log('Backend is now ready, switching to WebSocket status monitoring');
-              this.backendReadySubject.next(this.backendReady);
-            }
+        if (response.ok) {
+          const data = await response.json();
+
+          // Determine new state based on backend response
+          let newState: 'disconnected' | 'connecting' | 'connected';
+
+          if (data.services_loaded === true && data.endpoints_registered === true) {
+            newState = 'connected';
           } else {
-            this.backendReady = false;
+            newState = 'connecting';
           }
-        } catch (error) {
-          this.backendReady = false;
+
+          // Update state if changed
+          if (newState !== this.backendConnectionState) {
+            const oldState = this.backendConnectionState;
+            this.backendConnectionState = newState;
+            console.log(`Backend state changed: ${oldState} -> ${newState}`);
+            this.backendStateSubject.next(newState);
+
+            // If backend is now fully connected, stop polling
+            if (newState === 'connected') {
+              console.log('Backend is fully connected, stopping health polling');
+              this.stopBackendReadyCheck();
+            }
+          }
+        } else {
+          // Health endpoint not returning 200 - backend is disconnected
+          this.updateBackendState('disconnected');
         }
+      } catch (error) {
+        // Network error or timeout - backend is disconnected
+        this.updateBackendState('disconnected');
       }
     }, 2000);
+  }
+
+  private updateBackendState(newState: 'disconnected' | 'connecting' | 'connected') {
+    if (newState !== this.backendConnectionState) {
+      const oldState = this.backendConnectionState;
+      this.backendConnectionState = newState;
+      console.log(`Backend state changed: ${oldState} -> ${newState}`);
+      this.backendStateSubject.next(newState);
+
+      // If backend becomes disconnected, restart polling
+      if (newState === 'disconnected') {
+        console.log('Backend disconnected, will continue polling');
+      }
+    }
   }
 
   stopBackendReadyCheck() {
@@ -188,33 +224,35 @@ export class WebSocketService {
       clearInterval(this.backendReadyCheckInterval);
       this.backendReadyCheckInterval = null;
     }
-    this.backendReady = false;
-  }
-
-  isBackendReady(): boolean {
-    return this.backendReady;
   }
 
   /**
-   * Get backend ready status observable
+   * Get current backend connection state
    */
-  getBackendReadyStatus(): Observable<boolean> {
-    return this.backendReadySubject.asObservable().pipe(distinctUntilChanged());
+  getBackendConnectionState(): 'disconnected' | 'connecting' | 'connected' {
+    return this.backendConnectionState;
+  }
+
+  /**
+   * Check if backend is fully ready
+   */
+  isBackendReady(): boolean {
+    return this.backendConnectionState === 'connected';
+  }
+
+  /**
+   * Get backend state observable
+   */
+  getBackendState(): Observable<'disconnected' | 'connecting' | 'connected'> {
+    return this.backendStateSubject.asObservable().pipe(distinctUntilChanged());
   }
 
   /**
    * Enhanced connection status that considers both WebSocket state and backend readiness
    */
   getEnhancedConnectionStatusString(endpointId: string): string {
-    const socketState = this.getConnectionStatusString(endpointId);
-
-    // If backend is not ready, show connecting regardless of WebSocket state
-    if (!this.isBackendReady()) {
-      return 'connecting';
-    }
-
-    // Backend is ready, return actual WebSocket connection status
-    return socketState;
+    // Return backend connection state directly
+    return this.backendConnectionState;
   }
 
   /**
@@ -234,6 +272,20 @@ export class WebSocketService {
     } else {
       console.warn(`Cannot send message: WebSocket ${endpointId} is not connected`);
     }
+  }
+
+  /**
+   * Handle backend status updates received via WebSocket
+   */
+  private handleBackendStatusUpdate(data: any): void {
+    const phase = data.phase;
+    const status = data.status;
+
+    console.log(`Received backend status update: phase=${phase}, status=${status}`);
+
+    // WebSocket status updates are primarily for informational purposes
+    // The actual state transitions are handled by the HTTP polling mechanism
+    // which checks the /health endpoint for the definitive state
   }
 
   /**

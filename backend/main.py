@@ -120,8 +120,23 @@ def initialize_services(configs):
             print(f"✗ Failed to initialize service '{service_name}': {e}")
             raise
 
+    # Mark services as loaded and emit status update
     backend_initialization_state["services_loaded"] = True
     backend_initialization_state["status"] = "registering_endpoints"
+
+    # Broadcast services loaded status update
+    try:
+        # Import here to avoid circular imports
+        import asyncio
+        asyncio.create_task(broadcast_backend_status_update({
+            "type": "backend_status_update",
+            "phase": "services_loaded",
+            "services_loaded": True,
+            "status": "registering_endpoints"
+        }))
+    except Exception as e:
+        print(f"Warning: Could not broadcast services loaded update: {e}")
+
     return services
 
 # Initialize services
@@ -747,8 +762,21 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
 register_endpoints(app, services, SERVICE_CONFIGS)
 
-# Mark endpoints as registered
+# Mark endpoints as registered and emit status update
 backend_initialization_state["endpoints_registered"] = True
+
+# Broadcast endpoints registered status update
+try:
+    # Import here to avoid circular imports
+    import asyncio
+    asyncio.create_task(broadcast_backend_status_update({
+        "type": "backend_status_update",
+        "phase": "endpoints_registered",
+        "endpoints_registered": True,
+        "status": "starting"
+    }))
+except Exception as e:
+    print(f"Warning: Could not broadcast endpoints registered update: {e}")
 
 # Add startup and shutdown event handlers
 @app.on_event("startup")
@@ -868,6 +896,19 @@ async def broadcast_speech_training_update(session_id: str, data: Dict[str, Any]
         "timestamp": data.get("timestamp", datetime.now().isoformat()),
         **data
     })
+
+async def broadcast_backend_status_update(data: Dict[str, Any]):
+    """Broadcast backend initialization status updates to all connected clients"""
+    # Send to both vision and speech WebSocket connections
+    status_message = {
+        "type": "backend_status_update",
+        "timestamp": datetime.datetime.now().isoformat(),
+        **data
+    }
+
+    await ws_manager.broadcast("vision", status_message)
+    await ws_manager.broadcast("speech", status_message)
+    print(f"📡 Broadcasted backend status update: {data}")
 
 # ===== GLOBAL ENDPOINTS =====
 @app.get("/health")

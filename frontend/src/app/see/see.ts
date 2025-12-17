@@ -223,10 +223,10 @@ export class See implements AfterViewInit, OnDestroy {
       }
     );
 
-    // Subscribe to backend ready status changes
-    this.backendReadySubscription = this.webSocketService.getBackendReadyStatus().subscribe(
-      (ready: boolean) => {
-        console.log('Backend ready status changed:', ready);
+    // Subscribe to backend state changes
+    this.backendReadySubscription = this.webSocketService.getBackendState().subscribe(
+      (state: 'disconnected' | 'connecting' | 'connected') => {
+        console.log('Backend state changed:', state);
         // Force Angular change detection to update the LED status
         // This will trigger the enhanced connection status string to be recalculated
       }
