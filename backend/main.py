@@ -91,8 +91,20 @@ app.add_middleware(
 )
 
 # ===== SERVICE INITIALIZATION =====
+# Global initialization state - tracks actual server startup phases
+backend_initialization_state = {
+    "status": "starting",
+    "services_loaded": False,
+    "endpoints_registered": False,
+    "server_started": False,
+    "ready": False
+}
+
 def initialize_services(configs):
     """Initialize all services"""
+    global backend_initialization_state
+    backend_initialization_state["status"] = "loading_services"
+
     services = {}
 
     for service_name, config in configs.items():
@@ -108,6 +120,8 @@ def initialize_services(configs):
             print(f"✗ Failed to initialize service '{service_name}': {e}")
             raise
 
+    backend_initialization_state["services_loaded"] = True
+    backend_initialization_state["status"] = "registering_endpoints"
     return services
 
 # Initialize services
@@ -733,6 +747,28 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
 register_endpoints(app, services, SERVICE_CONFIGS)
 
+# Mark endpoints as registered
+backend_initialization_state["endpoints_registered"] = True
+
+# Add startup and shutdown event handlers
+@app.on_event("startup")
+async def startup_event():
+    """Called when the server starts"""
+    global backend_initialization_state
+    backend_initialization_state["server_started"] = True
+    backend_initialization_state["status"] = "ready"
+    backend_initialization_state["ready"] = True
+    print("✅ Backend server started and ready!")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Called when the server shuts down"""
+    global backend_initialization_state
+    backend_initialization_state["server_started"] = False
+    backend_initialization_state["status"] = "shutdown"
+    backend_initialization_state["ready"] = False
+    print("❌ Backend server shutting down...")
+
 # ===== WEBSOCKET CONNECTION MANAGER =====
 class WebSocketConnectionManager:
     """Manages WebSocket connections for real-time training status updates"""
@@ -836,8 +872,26 @@ async def broadcast_speech_training_update(session_id: str, data: Dict[str, Any]
 # ===== GLOBAL ENDPOINTS =====
 @app.get("/health")
 async def health_check():
-    """Global health check"""
-    return {"status": "healthy", "services": list(services.keys())}
+    """Global health check with initialization status"""
+    global backend_initialization_state
+
+    # If backend is not ready, return loading status
+    if not backend_initialization_state["ready"]:
+        return {
+            "status": backend_initialization_state["status"],
+            "ready": False,
+            "services_loaded": backend_initialization_state["services_loaded"],
+            "endpoints_registered": backend_initialization_state["endpoints_registered"]
+        }
+
+    # Backend is ready
+    return {
+        "status": "healthy",
+        "ready": True,
+        "services": list(services.keys()),
+        "services_loaded": True,
+        "endpoints_registered": True
+    }
 
 @app.get("/websocket/status")
 async def websocket_status():

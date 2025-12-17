@@ -193,6 +193,7 @@ export class See implements AfterViewInit, OnDestroy {
   // Connection status
   backendConnected = signal(false);
   private connectionStatusSubscription: any = null;
+  private backendReadySubscription: any = null;
 
   constructor(private http: HttpClient, private webWorkerService: WebWorkerService, private webSocketService: WebSocketService) {}
 
@@ -222,6 +223,15 @@ export class See implements AfterViewInit, OnDestroy {
       }
     );
 
+    // Subscribe to backend ready status changes
+    this.backendReadySubscription = this.webSocketService.getBackendReadyStatus().subscribe(
+      (ready: boolean) => {
+        console.log('Backend ready status changed:', ready);
+        // Force Angular change detection to update the LED status
+        // This will trigger the enhanced connection status string to be recalculated
+      }
+    );
+
     this.isComponentReady.set(true);
   }
 
@@ -243,6 +253,12 @@ export class See implements AfterViewInit, OnDestroy {
     if (this.connectionStatusSubscription) {
       this.connectionStatusSubscription.unsubscribe();
       this.connectionStatusSubscription = null;
+    }
+
+    // Clean up backend ready subscription
+    if (this.backendReadySubscription) {
+      this.backendReadySubscription.unsubscribe();
+      this.backendReadySubscription = null;
     }
 
     // Stop backend readiness checking

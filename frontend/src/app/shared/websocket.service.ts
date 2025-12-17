@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import { Observable, Subject, BehaviorSubject } from 'rxjs';
+import { distinctUntilChanged } from 'rxjs/operators';
 
 export interface WebSocketMessage {
   type: string;
@@ -140,6 +141,7 @@ export class WebSocketService {
    */
   private backendReady = false;
   private backendReadyCheckInterval: any = null;
+  private backendReadySubject = new BehaviorSubject<boolean>(false);
 
   startBackendReadyCheck() {
     if (this.backendReadyCheckInterval) {
@@ -151,19 +153,32 @@ export class WebSocketService {
       ? 'http://localhost:8000'
       : 'http://backend:8000';
 
-    // Check backend readiness every 2 seconds
+    // Check backend readiness every 2 seconds (only when backend is not ready)
     this.backendReadyCheckInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`${backendUrl}/health`);
-        if (response.ok) {
-          const data = await response.json();
-          // Backend is ready when it returns healthy status and has services
-          this.backendReady = data.status === 'healthy' && data.services && data.services.length > 0;
-        } else {
+      // Only poll if backend is not ready yet
+      if (!this.backendReady) {
+        try {
+          const response = await fetch(`${backendUrl}/health`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(5000) // 5 second timeout
+          });
+          if (response.ok) {
+            const data = await response.json();
+            // Backend is ready when it returns healthy status and has services
+            const wasReady = this.backendReady;
+            this.backendReady = data.status === 'healthy' && data.services && data.services.length > 0;
+
+            // If backend just became ready, emit the change and we can stop polling since WebSocket will handle status now
+            if (this.backendReady && !wasReady) {
+              console.log('Backend is now ready, switching to WebSocket status monitoring');
+              this.backendReadySubject.next(this.backendReady);
+            }
+          } else {
+            this.backendReady = false;
+          }
+        } catch (error) {
           this.backendReady = false;
         }
-      } catch (error) {
-        this.backendReady = false;
       }
     }, 2000);
   }
@@ -178,6 +193,13 @@ export class WebSocketService {
 
   isBackendReady(): boolean {
     return this.backendReady;
+  }
+
+  /**
+   * Get backend ready status observable
+   */
+  getBackendReadyStatus(): Observable<boolean> {
+    return this.backendReadySubject.asObservable().pipe(distinctUntilChanged());
   }
 
   /**

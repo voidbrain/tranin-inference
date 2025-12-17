@@ -92,6 +92,7 @@ export class Listen implements OnInit, OnDestroy {
   // Connection status
   backendConnected = false;
   private connectionStatusSubscription: any = null;
+  private backendReadySubscription: any = null;
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private webWorkerService: WebWorkerService, private webSocketService: WebSocketService) {}
 
@@ -112,6 +113,15 @@ export class Listen implements OnInit, OnDestroy {
     this.connectionStatusSubscription = this.webSocketService.getConnectionStatus('speech-training').subscribe(
       (connected: boolean) => {
         this.backendConnected = connected;
+        this.cdr.detectChanges();
+      }
+    );
+
+    // Subscribe to backend ready status changes
+    this.backendReadySubscription = this.webSocketService.getBackendReadyStatus().subscribe(
+      (ready: boolean) => {
+        console.log('Backend ready status changed:', ready);
+        // Force Angular change detection to update the LED status
         this.cdr.detectChanges();
       }
     );
@@ -138,6 +148,12 @@ export class Listen implements OnInit, OnDestroy {
     if (this.connectionStatusSubscription) {
       this.connectionStatusSubscription.unsubscribe();
       this.connectionStatusSubscription = null;
+    }
+
+    // Clean up backend ready subscription
+    if (this.backendReadySubscription) {
+      this.backendReadySubscription.unsubscribe();
+      this.backendReadySubscription = null;
     }
 
     // Stop backend readiness checking
