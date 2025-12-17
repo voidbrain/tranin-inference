@@ -53,6 +53,10 @@ class SpeechService:
         self.merged_dir = Path("models/speech/merged")
         self.merged_dir.mkdir(exist_ok=True, parents=True)
 
+        # Training logs directory - under speech models
+        self.train_logs_dir = self.models_dir / "train_logs"
+        self.train_logs_dir.mkdir(exist_ok=True, parents=True)
+
         self.model = None
         self.using_lora = False
 
@@ -1005,8 +1009,7 @@ class SpeechService:
             background_tasks.add_task(
                 self.fine_tune_lora,
                 language=language,
-                epochs=request.epochs,
-                output_dir=f"whisper_models/whisper-lora-{language}"
+                epochs=epochs
             )
 
             return {
@@ -1204,16 +1207,14 @@ class SpeechService:
             lang_dir = self.train_dir / language
             if lang_dir.exists():
                 deleted_count = 0
-                for file_path in lang_dir.glob("*"):
+                # Only delete files that match the specific language pattern in this directory
+                for file_path in lang_dir.glob(f"speech_*_{language}_training.*"):
                     if file_path.is_file():
                         file_path.unlink()  # Delete the file
                         deleted_count += 1
 
-                # Try to remove the directory if it's empty
-                try:
-                    lang_dir.rmdir()
-                except:
-                    pass  # Directory not empty, that's ok
+            # Keep the directory structure intact for future uploads
+            # Only remove files, not directories
 
                 return {
                     "message": f"Cleared {deleted_count} training files for language '{language}'",

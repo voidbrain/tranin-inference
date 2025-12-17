@@ -177,6 +177,8 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
     handler_name = endpoint_config['handler']
     params = endpoint_config.get('params', [])
 
+    # print(f"DEBUG: Registering endpoint: {methods} {path} with params: {params}")
+
     handler_method = getattr(service_instance, handler_name, None)
     if not handler_method:
         raise AttributeError(f"Handler method '{handler_name}' not found in {service_name} service")
@@ -474,6 +476,22 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                             raise HTTPException(status_code=500, detail=f"GET path param error: {str(e)}")
 
                     endpoint_function = path_endpoint_training_type
+                elif param_name == 'language':
+                    # Special case for language path parameter
+                    async def path_endpoint_language(language: str):
+                        try:
+                            if is_async_method:
+                                return await handler_method(language)
+                            else:
+                                import asyncio
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, language)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"GET path param error: {str(e)}")
+
+                    endpoint_function = path_endpoint_language
                 else:
                     # Generic fallback for other path parameters
                     async def generic_path_endpoint(param_value: str):
@@ -522,6 +540,84 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                     raise HTTPException(status_code=500, detail=f"GET query params error: {str(e)}")
 
             endpoint_function = get_query_params_endpoint
+
+    elif methods == ["DELETE"] and params:
+        # Check if this endpoint has path parameters (contains {param} in path)
+        import re
+        path_params = re.findall(r'\{([^}]+)\}', path)
+
+        if path_params:
+            # Create function signature with exact path parameter names
+            param_names = [p.split(':')[0] for p in params]  # Remove type annotations
+
+            if len(path_params) == 1 and len(param_names) == 1:
+                # Single path parameter case - create a function with correct signature
+                param_name = path_params[0]
+
+                if param_name == 'language':
+                    # Special case for language path parameter
+                    async def delete_path_endpoint_language(language: str):
+                        try:
+                            if is_async_method:
+                                return await handler_method(language)
+                            else:
+                                import asyncio
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, language)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"DELETE path param error: {str(e)}")
+
+                    endpoint_function = delete_path_endpoint_language
+                else:
+                    # Generic fallback for other path parameters
+                    async def generic_delete_path_endpoint(param_value: str):
+                        try:
+                            import asyncio
+                            if is_async_method:
+                                return await handler_method(param_value)
+                            else:
+                                import concurrent.futures
+                                loop = asyncio.get_event_loop()
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    return await loop.run_in_executor(executor, handler_method, param_value)
+                        except Exception as e:
+                            raise HTTPException(status_code=500, detail=f"DELETE generic path param error: {str(e)}")
+
+                    endpoint_function = generic_delete_path_endpoint
+            else:
+                # Multiple parameters - fallback to kwargs
+                async def delete_mixed_params_endpoint(**kwargs):
+                    try:
+                        if is_async_method:
+                            return await handler_method(**kwargs)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, **kwargs)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"DELETE mixed params error: {str(e)}")
+
+                endpoint_function = delete_mixed_params_endpoint
+        else:
+            # Query parameters only
+            async def delete_query_params_endpoint(**kwargs):
+                try:
+                    if is_async_method:
+                        return await handler_method(**kwargs)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, **kwargs)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"DELETE query params error: {str(e)}")
+
+            endpoint_function = delete_query_params_endpoint
 
     else:
         # Default async wrapper
