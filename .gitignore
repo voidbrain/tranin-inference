@@ -133,3 +133,5 @@ docs/_build/
 *.md.html
 backend/data/speech/
 backend/data/vision/
+backend/models/speech/temp/
+backend/models/vision/temp/
