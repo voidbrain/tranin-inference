@@ -384,11 +384,10 @@ export class See implements AfterViewInit, OnDestroy {
       // Create FormData to send image to backend
       const formData = new FormData();
       formData.append('file', imageBlob, 'captured_image.jpg');
-      formData.append('model', this.selectedModel()); // Send active model selection
 
-      // Call backend detection API
+      // Call backend detection API with model as query parameter
       this.status.set('Sending image to backend for detection...');
-      const response: any = await this.http.post(`${this.backendUrl}/vision/detect`, formData).toPromise();
+      const response: any = await this.http.post(`${this.backendUrl}/vision/detect?model=${this.selectedModel()}`, formData).toPromise();
 
       // Process backend response with separate digit/color detections
       const digitDetections = (response.digitDetections || []).map((detection: any) => ({

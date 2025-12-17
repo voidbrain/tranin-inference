@@ -282,28 +282,29 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                 else:
                     query_params.append(param_name)
 
-            # Create dynamic function based on parameter types
+            # Create dynamic function based on parameter types using a different approach
+            # Instead of exec(), create functions with proper variable binding
+
             if len(upload_params) == 1 and len(query_params) == 1:
                 # Special case: one file upload + one query parameter
                 upload_param = upload_params[0]
                 query_param = query_params[0]
 
-                # Create dynamic parameter names instead of hardcoding
-                exec(f"""
-async def post_mixed_endpoint({upload_param}: UploadFile = File(...), {query_param}: str = Query(...)):
-    try:
-        if is_async_method:
-            return await handler_method({upload_param}, {query_param})
-        else:
-            import asyncio
-            import concurrent.futures
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                return await loop.run_in_executor(executor, handler_method, {upload_param}, {query_param})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File upload error: {{str(e)}}")
-""")
-                endpoint_function = locals()['post_mixed_endpoint']
+                async def post_mixed_endpoint(file: UploadFile = File(...), model: str = Query(...)):
+                    try:
+                        args = [file, model]
+                        if is_async_method:
+                            return await handler_method(*args)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, *args)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                endpoint_function = post_mixed_endpoint
 
             elif len(upload_params) == 1 and len(query_params) == 2:
                 # Special case: one file upload + two query parameters
@@ -311,43 +312,40 @@ async def post_mixed_endpoint({upload_param}: UploadFile = File(...), {query_par
                 query_param1 = query_params[0]
                 query_param2 = query_params[1]
 
-                # Create dynamic parameter names
-                exec(f"""
-async def post_mixed_endpoint_2qp({upload_param}: UploadFile = File(...), {query_param1}: str = Query(...), {query_param2}: str = Query(...)):
-    try:
-        if is_async_method:
-            return await handler_method({upload_param}, {query_param1}, {query_param2})
-        else:
-            import asyncio
-            import concurrent.futures
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                return await loop.run_in_executor(executor, handler_method, {upload_param}, {query_param1}, {query_param2})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File upload error: {{str(e)}}")
-""")
-                endpoint_function = locals()['post_mixed_endpoint_2qp']
+                async def post_mixed_endpoint_2qp(file: UploadFile = File(...), query_param1: str = Query(...), query_param2: str = Query(...)):
+                    try:
+                        args = [file, query_param1, query_param2]
+                        if is_async_method:
+                            return await handler_method(*args)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, *args)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                endpoint_function = post_mixed_endpoint_2qp
 
             elif len(upload_params) == 1 and len(query_params) == 0:
                 # Standard file upload only
                 param_name = upload_params[0]
 
-                # Create dynamic parameter name instead of hardcoding
-                exec(f"""
-async def post_file_upload_endpoint({param_name}: UploadFile = File(...)):
-    try:
-        if is_async_method:
-            return await handler_method({param_name})
-        else:
-            import asyncio
-            import concurrent.futures
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                return await loop.run_in_executor(executor, handler_method, {param_name})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File upload error: {{str(e)}}")
-""")
-                endpoint_function = locals()['post_file_upload_endpoint']
+                async def post_file_upload_endpoint(file_param: UploadFile = File(...)):
+                    try:
+                        if is_async_method:
+                            return await handler_method(file_param)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, file_param)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
+
+                endpoint_function = post_file_upload_endpoint
             else:
                 # Fallback for other cases
                 async def post_file_upload_fallback(file: UploadFile = File(...)):
