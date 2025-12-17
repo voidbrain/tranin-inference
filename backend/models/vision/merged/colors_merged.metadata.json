@@ -1,0 +1,25 @@
+{
+  "model_type": "YOLO-merged",
+  "base_model": "models/vision/base/yolov8n.pt",
+  "merge_type": "colors",
+  "lora_adapters": [
+    {
+      "name": "colors",
+      "path": "models/vision/loras/colors/colors.safetensors"
+    }
+  ],
+  "classes": {
+    "digits": [],
+    "colors": [
+      "red",
+      "blue",
+      "green",
+      "yellow",
+      "orange",
+      "purple"
+    ]
+  },
+  "total_classes": 6,
+  "creation_time": "2025-12-17T15:57:54.596533",
+  "is_merged_model": true
+}

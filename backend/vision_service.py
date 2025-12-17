@@ -75,10 +75,7 @@ class VisionService:
         self.merged_dir = Path(models_dir) / "merged"
         self.merged_dir.mkdir(exist_ok=True, parents=True)
 
-        # Training statistics tracking
-        self.stats_file = self.data_dir / "training_stats.json"
-        self.training_stats = self._load_training_stats()
-        self._save_training_stats()  # Ensure file exists
+        # Training statistics derived from logs (no separate stats file)
 
         # Auto-load latest merged model on startup
         self._load_merged_model_if_available()
@@ -94,45 +91,46 @@ class VisionService:
         self.training_logs.append(log_entry)
         print(f"Training log: [{timestamp}] {message}")
 
-    def _load_training_stats(self) -> dict:
-        """Load training statistics from JSON file"""
+    def _calculate_training_stats(self) -> dict:
+        """Calculate training statistics from logs"""
         try:
-            if self.stats_file.exists():
-                with open(self.stats_file, 'r') as f:
-                    return json.load(f)
-            else:
-                # Return default stats
-                return {
-                    "training_sessions": 0,
-                    "total_images_annotated": 0,
-                    "last_training_time": None
-                }
+            # Count completed training sessions by looking for completion logs
+            training_sessions = 0
+            total_images_annotated = 0
+            last_training_time = None
+
+            for log_entry in self.training_logs:
+                metadata = log_entry.get('metadata', {})
+                if metadata.get('type') == 'training_completed':
+                    training_sessions += 1
+                    # Extract timestamp for last training time
+                    if log_entry.get('timestamp'):
+                        last_training_time = log_entry['timestamp']
+
+                # Try to extract images count from log messages
+                message = log_entry.get('message', '')
+                if 'Updated training statistics' in message and 'images +' in message:
+                    try:
+                        # Extract number from "images +X"
+                        import re
+                        match = re.search(r'images \+(\d+)', message)
+                        if match:
+                            total_images_annotated += int(match.group(1))
+                    except:
+                        pass
+
+            return {
+                "training_sessions": training_sessions,
+                "total_images_annotated": total_images_annotated,
+                "last_training_time": last_training_time
+            }
         except Exception as e:
-            print(f"Warning: Failed to load training stats: {e}")
+            print(f"Warning: Failed to calculate training stats from logs: {e}")
             return {
                 "training_sessions": 0,
                 "total_images_annotated": 0,
                 "last_training_time": None
             }
-
-    def _save_training_stats(self):
-        """Save training statistics to JSON file"""
-        try:
-            with open(self.stats_file, 'w') as f:
-                json.dump(self.training_stats, f, indent=2)
-        except Exception as e:
-            print(f"Warning: Failed to save training stats: {e}")
-
-    def _increment_training_sessions(self):
-        """Increment the training sessions counter"""
-        self.training_stats["training_sessions"] = self.training_stats.get("training_sessions", 0) + 1
-        self.training_stats["last_training_time"] = datetime.datetime.now().isoformat()
-        self._save_training_stats()
-
-    def _add_annotated_images(self, count: int):
-        """Add to the total images annotated counter"""
-        self.training_stats["total_images_annotated"] = self.training_stats.get("total_images_annotated", 0) + count
-        self._save_training_stats()
 
     async def detect_objects(self, image_data: bytes, blue_box_coords: dict = None) -> dict:
         """Run object detection on image data using real YOLOv8 models"""
@@ -159,13 +157,27 @@ class VisionService:
 
             # Determine which model file to use
             model_path = None
+            detected_merge_type = None
 
             if model_type == "merged" or training_type == "merged":
                 # Use digits_colors_merged model for full merged detection
                 merged_file = self.merged_dir / "digits_colors_merged.pt"
                 if merged_file.exists():
                     model_path = str(merged_file)
-                    print(f"Using merged model: {model_path}")
+                    # Try to read metadata to determine merge type
+                    metadata_file = merged_file.with_suffix('.metadata.json')
+                    if metadata_file.exists():
+                        try:
+                            import json
+                            with open(metadata_file, 'r') as f:
+                                metadata = json.load(f)
+                                detected_merge_type = metadata.get('merge_type', 'combined')
+                                print(f"Using merged model: {model_path} (type: {detected_merge_type})")
+                        except Exception as e:
+                            print(f"Warning: Could not read metadata for {merged_file}: {e}")
+                            print(f"Using merged model: {model_path}")
+                    else:
+                        print(f"Using merged model: {model_path}")
                 else:
                     print(f"Merged model not found: {merged_file}, using base model")
                     use_mock = True
@@ -174,7 +186,21 @@ class VisionService:
                 merged_file = self.merged_dir / f"{training_type}_merged.pt"
                 if merged_file.exists():
                     model_path = str(merged_file)
-                    print(f"Using {training_type} merged model: {model_path}")
+                    # Try to read metadata
+                    metadata_file = merged_file.with_suffix('.metadata.json')
+                    if metadata_file.exists():
+                        try:
+                            import json
+                            with open(metadata_file, 'r') as f:
+                                metadata = json.load(f)
+                                detected_merge_type = metadata.get('merge_type', training_type)
+                                print(f"Using {training_type} merged model: {model_path} (type: {detected_merge_type})")
+                        except Exception as e:
+                            print(f"Warning: Could not read metadata for {merged_file}: {e}")
+                            print(f"Using {training_type} merged model: {model_path}")
+                    else:
+                        print(f"Using {training_type} merged model: {model_path}")
+                        detected_merge_type = training_type
                 else:
                     print(f"{training_type} merged model not found: {merged_file}, using base model")
                     use_mock = True
@@ -187,6 +213,10 @@ class VisionService:
                 else:
                     print(f"Base model not found: {base_model}, using mock detections")
                     use_mock = True
+
+            # Update training_type based on detected merge type
+            if detected_merge_type:
+                training_type = detected_merge_type
 
             if not use_mock and model_path:
                 try:
@@ -529,8 +559,8 @@ class VisionService:
                 "digits_processed": digits_processed,
                 "colors_processed": colors_processed,
 
-                # Training status
-                "training_sessions": self.training_stats.get("training_sessions", 0),
+                # Training status - calculated from logs
+                "training_sessions": self._calculate_training_stats().get("training_sessions", 0),
                 "ready_for_training": {
                     "digits": digits_waiting > 0,
                     "colors": colors_waiting > 0,
@@ -844,6 +874,152 @@ class VisionService:
         except Exception as e:
             print(f"Warning: Failed to move {training_type} training data: {e}")
 
+    def _move_waiting_to_processed(self, training_type: str):
+        """Move training data from waiting to processed directory after training completion"""
+        try:
+            if training_type == "digits":
+                waiting_dir, processed_dir = self.digits_waiting_dir, self.digits_processed_dir
+            elif training_type == "colors":
+                waiting_dir, processed_dir = self.colors_waiting_dir, self.colors_processed_dir
+            else:
+                return
+
+            # Move all files from waiting to processed
+            moved_count = 0
+            for file_path in waiting_dir.glob("vision_*"):
+                if file_path.is_file():
+                    target_path = processed_dir / file_path.name
+                    file_path.rename(target_path)
+                    moved_count += 1
+
+            if moved_count > 0:
+                print(f"Moved {moved_count} {training_type} training files to processed directory")
+
+        except Exception as e:
+            print(f"Warning: Failed to move {training_type} training data to processed: {e}")
+
+    def _create_yolo_dataset_yaml(self, training_type: str, data_dir: Path) -> Path:
+        """Create YOLO dataset YAML file for training"""
+        try:
+            # Determine class names based on training type
+            if training_type == "digits":
+                names = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+            elif training_type == "colors":
+                names = ['red', 'blue', 'green', 'yellow', 'orange', 'purple']
+            else:
+                raise Exception(f"Unknown training type: {training_type}")
+
+            # Create dataset YAML content
+            yaml_content = f"""# YOLO Dataset Configuration for {training_type} training
+# Auto-generated by VisionService
+
+# Dataset paths
+path: {data_dir}  # dataset root dir
+train: {data_dir}  # train images (relative to 'path')
+val: {data_dir}    # val images (relative to 'path')
+
+# Classes
+nc: {len(names)}  # number of classes
+names: {names}  # class names
+"""
+
+            # Save YAML file
+            yaml_path = data_dir / f"{training_type}_dataset.yaml"
+            with open(yaml_path, 'w') as f:
+                f.write(yaml_content)
+
+            print(f"Created YOLO dataset YAML: {yaml_path}")
+            return yaml_path
+
+        except Exception as e:
+            raise Exception(f"Failed to create YOLO dataset YAML: {str(e)}")
+
+    async def _run_yolo_lora_training(self, base_model_path: Path, dataset_yaml_path: Path,
+                                     lora_output_dir: Path, training_type: str, lora_rank: int,
+                                     epochs: int, batch_size: int) -> Path:
+        """Run real YOLO LoRA training using ultralytics"""
+        try:
+            import subprocess
+            import asyncio
+
+            print(f"🚀 Starting REAL YOLO LoRA training for {training_type}...")
+            print(f"  Base model: {base_model_path}")
+            print(f"  Dataset: {dataset_yaml_path}")
+            print(f"  LoRA rank: {lora_rank}, epochs: {epochs}, batch size: {batch_size}")
+
+            # Run actual YOLO training with LoRA using ultralytics CLI
+            # This will create a trained model with LoRA adapters
+            train_cmd = [
+                "yolo", "train",
+                f"model={base_model_path}",
+                f"data={dataset_yaml_path}",
+                f"epochs={epochs}",
+                f"batch={batch_size}",
+                f"lora={lora_rank}",  # Enable LoRA with specified rank
+                f"project={lora_output_dir.parent}",
+                f"name={training_type}_lora",
+                "imgsz=640",  # Standard YOLO image size
+                "device=cpu",  # Use CPU (or could detect GPU)
+                "workers=0",   # Disable multiprocessing for stability
+                "save=False",  # Don't save checkpoints
+                "verbose=True" # Show training progress
+            ]
+
+            print(f"Running command: {' '.join(train_cmd)}")
+
+            # Run the training process
+            process = await asyncio.create_subprocess_exec(
+                *train_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(lora_output_dir.parent)  # Run in the loras directory
+            )
+
+            # Monitor training progress
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                line_str = line.decode().strip()
+                if line_str:
+                    print(f"YOLO Train [{training_type}]: {line_str}")
+                    # Could parse progress here and update self.training_progress
+
+            # Wait for completion
+            return_code = await process.wait()
+
+            if return_code != 0:
+                stderr_output = await process.stderr.read()
+                stderr_text = stderr_output.decode()
+                raise Exception(f"YOLO training failed with return code {return_code}: {stderr_text}")
+
+            # Find the trained LoRA model file
+            # YOLO saves the best model as 'best.pt' in the run directory
+            run_dir = lora_output_dir.parent / f"{training_type}_lora"
+            best_model_path = run_dir / "weights" / "best.pt"
+
+            if not best_model_path.exists():
+                # Fallback: check if the model was saved directly
+                alt_path = lora_output_dir / f"{training_type}_lora.pt"
+                if alt_path.exists():
+                    best_model_path = alt_path
+                else:
+                    raise Exception(f"Trained LoRA model not found. Expected: {best_model_path}")
+
+            # Copy the trained LoRA model to our expected location
+            lora_file = lora_output_dir / f"{training_type}.pt"
+            import shutil
+            shutil.copy2(best_model_path, lora_file)
+
+            print(f"✅ REAL YOLO LoRA training completed!")
+            print(f"  LoRA model saved to: {lora_file}")
+            print(f"  Training run logs: {run_dir}")
+
+            return lora_file
+
+        except Exception as e:
+            raise Exception(f"Real YOLO LoRA training failed: {str(e)}")
+
     async def train_specialized_lora(self, training_type: str = "digits") -> dict:
         """Train specialized LoRA adapter for digits or colors"""
         try:
@@ -880,24 +1056,22 @@ class VisionService:
             lora_output_dir.mkdir(exist_ok=True, parents=True)
             self._add_training_log(f"Created LoRA output directory: {lora_output_dir}")
 
-            # YOLO LoRA training command would be:
-            # yolo train model=base/yolov8n.pt lora=1 lora_rank={lora_rank}
-            # epochs={epochs} imgsz=640 project=loras name={training_type}
-            # data={dataset_yaml} ...
+            # Create YOLO dataset YAML file
+            dataset_yaml_path = self._create_yolo_dataset_yaml(training_type, dataset_info["waiting_dir"])
+            self._add_training_log(f"Created YOLO dataset YAML: {dataset_yaml_path}")
 
-            # For now, simulate the training process
-            import asyncio
-            self._add_training_log("Starting LoRA training simulation...")
-            await asyncio.sleep(2)  # Simulate training time
-            self._add_training_log("LoRA training simulation completed")
-
-            # Create mock LoRA file
-            lora_file = lora_output_dir / f"{training_type}.safetensors"
-            with open(lora_file, 'w') as f:
-                f.write(f"# Mock LoRA adapter for {training_type}\n")
-                f.write(f"# Rank: {lora_rank}\n")
-                f.write(f"# Epochs: {epochs}\n")
-            self._add_training_log(f"Created LoRA adapter file: {lora_file}")
+            # Run real YOLO LoRA training
+            self._add_training_log("Starting real YOLO LoRA training...")
+            lora_file = await self._run_yolo_lora_training(
+                base_model_path=self.models_dir / "base" / "yolov8n.pt",
+                dataset_yaml_path=dataset_yaml_path,
+                lora_output_dir=lora_output_dir,
+                training_type=training_type,
+                lora_rank=lora_rank,
+                epochs=epochs,
+                batch_size=batch_size
+            )
+            self._add_training_log(f"Real YOLO LoRA training completed: {lora_file}")
 
             # Merge LoRA with base model to create usable model
             self.training_progress = 95.0
@@ -932,10 +1106,12 @@ class VisionService:
                 print(f"⚠️  Error during merging: {e}, using LoRA directly")
                 merged_model_path = None
 
-            # Update training statistics
-            self._increment_training_sessions()
-            self._add_annotated_images(dataset_info["sample_count"])
-            self._add_training_log(f"Updated training statistics: sessions +1, images +{dataset_info['sample_count']}")
+            # Move completed training data to processed directory
+            self._move_waiting_to_processed(training_type)
+            self._add_training_log(f"Moved {dataset_info['sample_count']} training samples to processed directory")
+
+            # Log training completion stats
+            self._add_training_log(f"Training completed with {dataset_info['sample_count']} samples")
 
             # Set success status
             self.training_status = "success"
@@ -1409,9 +1585,7 @@ class VisionService:
                 print(f"⚠️  Error during merging: {e}")
                 self.training_message = f"Combined training completed with merge errors: {e}"
 
-            # Update training statistics
-            self._increment_training_sessions()
-            self._add_annotated_images(total_samples)
+            # Log completion stats
 
             # Set success status
             self.training_status = "success"

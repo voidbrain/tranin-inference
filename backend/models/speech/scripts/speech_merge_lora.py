@@ -75,7 +75,29 @@ def merge_whisper_loras(base_model_path: str, lora_paths: List[str], output_path
         # Save as real PyTorch binary state dict
         torch.save(merged_state, output_path)
 
+        # Add metadata to a separate file
+        metadata = {
+            'model_type': 'Whisper-merged',
+            'base_model': base_model_path,
+            'merge_type': 'multilingual' if len(languages) > 1 else languages[0] if languages else 'unknown',
+            'lora_adapters': [{'name': lang, 'path': str(lora_path)} for lang, lora_path in zip(languages, lora_paths)],
+            'classes': {
+                'languages': languages
+            },
+            'total_languages': len(languages),
+            'multilingual': len(languages) > 1,
+            'creation_time': str(datetime.datetime.now().isoformat()),
+            'is_merged_model': True
+        }
+
+        # Save metadata alongside the model
+        metadata_path = Path(output_path).with_suffix('.metadata.json')
+        with open(metadata_path, 'w') as f:
+            import json
+            json.dump(metadata, f, indent=2)
+
         print(f"✓ Real Whisper merged model saved to: {output_path}")
+        print(f"  - Metadata saved to: {metadata_path}")
         print(f"  - Format: Binary PyTorch state dict")
         print(f"  - Size: {Path(output_path).stat().st_size} bytes")
         print(f"  - Languages: {', '.join(languages)}")
@@ -87,7 +109,8 @@ def merge_whisper_loras(base_model_path: str, lora_paths: List[str], output_path
             "lora_adapters": lora_paths,
             "languages": languages,
             "output": output_path,
-            "model_type": "Whisper",
+            "metadata": str(metadata_path),
+            "model_type": "Whisper-merged",
             "multilingual": len(languages) > 1,
             "format": "PyTorch-binary"
         }
