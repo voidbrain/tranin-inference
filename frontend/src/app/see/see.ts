@@ -713,7 +713,7 @@ export class See implements AfterViewInit, OnDestroy {
   private startSpecializedTrainingPolling(trainingType: 'digits' | 'colors') {
     this.trainingStatusPollingInterval.set(setInterval(async () => {
       try {
-        const response: any = await this.http.get(`${this.backendUrl}/training-logs`).toPromise();
+        const response: any = await this.http.get(`${this.backendUrl}/vision/training-logs`).toPromise();
         const logs = response.logs || [];
         this.trainingLogs.set(logs);
 

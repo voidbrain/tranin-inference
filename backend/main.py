@@ -426,6 +426,26 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
             endpoint_function = post_training_with_background
 
+        elif params == ["type: str", "background_tasks: BackgroundTasks"]:
+            # Special case: train-lora-specialized endpoint
+            from fastapi import BackgroundTasks
+
+            async def post_lora_specialized_endpoint(training_type: str, background_tasks: BackgroundTasks):
+                try:
+                    # The method expects training_type and background_tasks
+                    if is_async_method:
+                        return await handler_method(training_type, background_tasks)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, training_type, background_tasks)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"LoRA training error: {str(e)}")
+
+            endpoint_function = post_lora_specialized_endpoint
+
         else:
             # Handle generic POST endpoints with parameters
             async def post_generic_endpoint(request: Request):

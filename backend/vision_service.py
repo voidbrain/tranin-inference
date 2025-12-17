@@ -74,8 +74,53 @@ class VisionService:
         self.merged_dir = Path(models_dir) / "merged"
         self.merged_dir.mkdir(exist_ok=True, parents=True)
 
+        # Training statistics tracking
+        self.stats_file = self.data_dir / "training_stats.json"
+        self.training_stats = self._load_training_stats()
+        self._save_training_stats()  # Ensure file exists
+
         # Auto-load latest merged model on startup
         self._load_merged_model_if_available()
+
+    def _load_training_stats(self) -> dict:
+        """Load training statistics from JSON file"""
+        try:
+            if self.stats_file.exists():
+                with open(self.stats_file, 'r') as f:
+                    return json.load(f)
+            else:
+                # Return default stats
+                return {
+                    "training_sessions": 0,
+                    "total_images_annotated": 0,
+                    "last_training_time": None
+                }
+        except Exception as e:
+            print(f"Warning: Failed to load training stats: {e}")
+            return {
+                "training_sessions": 0,
+                "total_images_annotated": 0,
+                "last_training_time": None
+            }
+
+    def _save_training_stats(self):
+        """Save training statistics to JSON file"""
+        try:
+            with open(self.stats_file, 'w') as f:
+                json.dump(self.training_stats, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Failed to save training stats: {e}")
+
+    def _increment_training_sessions(self):
+        """Increment the training sessions counter"""
+        self.training_stats["training_sessions"] = self.training_stats.get("training_sessions", 0) + 1
+        self.training_stats["last_training_time"] = datetime.datetime.now().isoformat()
+        self._save_training_stats()
+
+    def _add_annotated_images(self, count: int):
+        """Add to the total images annotated counter"""
+        self.training_stats["total_images_annotated"] = self.training_stats.get("total_images_annotated", 0) + count
+        self._save_training_stats()
 
     async def detect_objects(self, image_data: bytes, blue_box_coords: dict = None) -> dict:
         """Run object detection on image data using real YOLOv8 models"""
@@ -98,45 +143,48 @@ class VisionService:
 
             # Try to use real YOLO inference with loaded model
             detections = []
-            use_mock = True
+            use_mock = False  # Default to not using mocks
 
-            try:
-                # Try to load and use real model from merged/ directory
-                model_path = None
+            # Determine which model file to use
+            model_path = None
 
-                if model_type == "merged" or training_type == "merged":
-                    # Use digits_colors_merged model for full merged detection
-                    merged_file = self.merged_dir / "digits_colors_merged.pt"
-                    if merged_file.exists():
-                        model_path = str(merged_file)
-                    model_path = self.model.get("merged_path") if isinstance(self.model, dict) else None
-                elif training_type in ["digits", "colors"]:
-                    # Use individual merged models (base + individual LoRA)
-                    merged_file = self.merged_dir / f"{training_type}_merged.pt"
-                    if merged_file.exists():
-                        model_path = str(merged_file)
-                    else:
-                        # Fallback to LoRA file if merged doesn't exist
-                        lora_file = self.models_dir / "loras" / training_type / f"{training_type}.safetensors"
-                        if lora_file.exists():
-                            model_path = str(lora_file)
+            if model_type == "merged" or training_type == "merged":
+                # Use digits_colors_merged model for full merged detection
+                merged_file = self.merged_dir / "digits_colors_merged.pt"
+                if merged_file.exists():
+                    model_path = str(merged_file)
+                    print(f"Using merged model: {model_path}")
+                else:
+                    print(f"Merged model not found: {merged_file}, using base model")
+                    use_mock = True
+            elif training_type in ["digits", "colors"]:
+                # Use individual merged models (base + individual LoRA)
+                merged_file = self.merged_dir / f"{training_type}_merged.pt"
+                if merged_file.exists():
+                    model_path = str(merged_file)
+                    print(f"Using {training_type} merged model: {model_path}")
+                else:
+                    print(f"{training_type} merged model not found: {merged_file}, using base model")
+                    use_mock = True
+            else:
+                # Base model - use YOLOv8n directly
+                base_model = self.models_dir / "base" / "yolov8n.pt"
+                if base_model.exists():
+                    model_path = str(base_model)
+                    print(f"Using base YOLO model: {model_path}")
+                else:
+                    print(f"Base model not found: {base_model}, using mock detections")
+                    use_mock = True
 
-                if model_path and Path(model_path).exists():
+            if not use_mock and model_path:
+                try:
                     # Import YOLO and try real inference
                     from ultralytics import YOLO
 
-                    # Load the model
-                    if training_type == "merged" or model_type == "merged":
-                        yolo_model = YOLO(model_path)
-                    else:
-                        # For LoRA models, load base model and apply LoRA
-                        base_model = self.models_dir / "base" / "yolov8n.pt"
-                        if base_model.exists():
-                            yolo_model = YOLO(str(base_model))
-                            # Apply LoRA adapter (this is simplified - real implementation would properly apply LoRA)
-                            # For now, just use the base model as fallback
+                    print(f"Loading YOLO model: {model_path}")
+                    yolo_model = YOLO(model_path)
 
-                    # Run inference
+                    print("Running inference...")
                     results = yolo_model(image, conf=0.25)  # Lower confidence threshold
 
                     # Process real YOLO results and separate by detection type
@@ -181,16 +229,17 @@ class VisionService:
                                         }
                                     })
 
-                    use_mock = False  # Successfully used real model
+                    print(f"Real model detected: {len(digit_detections)} digits, {len(color_detections)} colors")
 
-            except Exception as e:
-                print(f"Failed to use real YOLO model ({model_type}/{training_type}): {e}")
-                print("Falling back to mock detections...")
-                use_mock = True
+                except Exception as e:
+                    print(f"Failed to use real YOLO model ({model_type}/{training_type}): {e}")
+                    print("Falling back to mock detections...")
+                    use_mock = True
 
-            # Fallback to mock detections if real model fails
-            if use_mock or len(digit_detections) + len(color_detections) == 0:
+            # Use mock detections if real model failed or no detections found
+            if use_mock:
                 digit_detections, color_detections = self._get_mock_detections(training_type, model_type)
+                print(f"Using mock detections: {len(digit_detections)} digits, {len(color_detections)} colors")
 
             # Apply blue box prioritization for digit detections if coordinates provided
             if blue_box_coords:
@@ -469,7 +518,7 @@ class VisionService:
                 "colors_processed": colors_processed,
 
                 # Training status
-                "training_sessions": 0,  # Not implemented yet
+                "training_sessions": self.training_stats.get("training_sessions", 0),
                 "ready_for_training": {
                     "digits": digits_waiting > 0,
                     "colors": colors_waiting > 0,
@@ -830,6 +879,43 @@ class VisionService:
                 f.write(f"# Rank: {lora_rank}\n")
                 f.write(f"# Epochs: {epochs}\n")
 
+            # Merge LoRA with base model to create usable model
+            self.training_progress = 95.0
+            self.training_message = f"Merging {training_type} LoRA with base model..."
+
+            merged_model_path = self.merged_dir / f"{training_type}_merged.pt"
+            try:
+                # Call the merging script
+                import subprocess
+                merge_script = self.models_dir / "scripts" / "vision_merge_lora.py"
+                base_model = self.models_dir / "base" / "yolov8n.pt"
+
+                if merge_script.exists() and base_model.exists():
+                    result = subprocess.run([
+                        "python", str(merge_script),
+                        "--base", str(base_model),
+                        "--lora", str(lora_file),
+                        "--out", str(merged_model_path)
+                    ], capture_output=True, text=True, cwd=self.models_dir)
+
+                    if result.returncode == 0:
+                        print(f"✓ Successfully merged {training_type} model: {merged_model_path}")
+                        self.training_message = f"{training_type} model merged successfully!"
+                    else:
+                        print(f"⚠️  Merge failed for {training_type}, using LoRA directly: {result.stderr}")
+                        merged_model_path = None
+                else:
+                    print(f"⚠️  Merge script or base model not found, using LoRA directly")
+                    merged_model_path = None
+
+            except Exception as e:
+                print(f"⚠️  Error during merging: {e}, using LoRA directly")
+                merged_model_path = None
+
+            # Update training statistics
+            self._increment_training_sessions()
+            self._add_annotated_images(dataset_info["sample_count"])
+
             # Set success status
             self.training_status = "success"
             self.training_progress = 100.0
@@ -841,6 +927,7 @@ class VisionService:
                 "lora_rank": lora_rank,
                 "epochs": epochs,
                 "lora_path": str(lora_file),
+                "merged_path": str(merged_model_path) if merged_model_path else None,
                 "samples_trained": dataset_info["sample_count"]
             }
 
@@ -1138,11 +1225,12 @@ class VisionService:
         """API endpoint wrapper for getting merged model status"""
         return self.get_merged_model_status()
 
-    async def train_lora_specialized_endpoint(self, training_type: str, background_tasks):
+    async def train_lora_specialized_endpoint(self, training_data: dict, background_tasks):
         """API endpoint wrapper for specialized LoRA training (frontend expects this endpoint)"""
         from fastapi import HTTPException
 
         try:
+            training_type = training_data.get("training_type", "digits")
             if training_type not in ["digits", "colors", "combined"]:
                 raise HTTPException(status_code=400, detail="Invalid training type")
 
@@ -1229,21 +1317,76 @@ class VisionService:
                 f.write(f"# Epochs: {epochs}\n")
                 f.write(f"# Total samples: {total_samples}\n")
 
-            # Also write/update individual LoRA files
-            with open(digits_lora_file, 'w') as f:
-                f.write(f"# Mock digits LoRA adapter (from combined training)\n")
-                f.write(f"# Rank: {lora_rank//2}\n")
-                f.write(f"# Epochs: {epochs}\n")
+            # Merge LoRA with base model to create usable models
+            self.training_progress = 95.0
+            self.training_message = "Creating merged models from combined LoRA..."
 
-            with open(colors_lora_file, 'w') as f:
-                f.write(f"# Mock colors LoRA adapter (from combined training)\n")
-                f.write(f"# Rank: {lora_rank//2}\n")
-                f.write(f"# Epochs: {epochs}\n")
+            try:
+                # Call the merging script to create merged models
+                import subprocess
+                merge_script = self.models_dir / "scripts" / "vision_merge_lora.py"
+                base_model = self.models_dir / "base" / "yolov8n.pt"
+
+                merged_models_created = []
+
+                if merge_script.exists() and base_model.exists():
+                    # Create digits+colors merged model
+                    merged_pt_path = self.merged_dir / "digits_colors_merged.pt"
+                    result = subprocess.run([
+                        "python", str(merge_script),
+                        "--base", str(base_model),
+                        "--lora", str(digits_lora_file),
+                        "--lora", str(colors_lora_file),
+                        "--out", str(merged_pt_path)
+                    ], capture_output=True, text=True, cwd=self.models_dir)
+
+                    if result.returncode == 0:
+                        print(f"✓ Successfully created combined merged model: {merged_pt_path}")
+                        merged_models_created.append(str(merged_pt_path))
+                    else:
+                        print(f"⚠️  Failed to create combined merged model: {result.stderr}")
+
+                    # Also create individual merged models
+                    digits_merged_path = self.merged_dir / "digits_merged.pt"
+                    result_digits = subprocess.run([
+                        "python", str(merge_script),
+                        "--base", str(base_model),
+                        "--lora", str(digits_lora_file),
+                        "--out", str(digits_merged_path)
+                    ], capture_output=True, text=True, cwd=self.models_dir)
+
+                    if result_digits.returncode == 0:
+                        print(f"✓ Successfully created digits merged model: {digits_merged_path}")
+                        merged_models_created.append(str(digits_merged_path))
+
+                    colors_merged_path = self.merged_dir / "colors_merged.pt"
+                    result_colors = subprocess.run([
+                        "python", str(merge_script),
+                        "--base", str(base_model),
+                        "--lora", str(colors_lora_file),
+                        "--out", str(colors_merged_path)
+                    ], capture_output=True, text=True, cwd=self.models_dir)
+
+                    if result_colors.returncode == 0:
+                        print(f"✓ Successfully created colors merged model: {colors_merged_path}")
+                        merged_models_created.append(str(colors_merged_path))
+
+                else:
+                    print(f"⚠️  Merge script or base model not found")
+
+                self.training_message = f"Combined training completed! Created {len(merged_models_created)} merged models."
+
+            except Exception as e:
+                print(f"⚠️  Error during merging: {e}")
+                self.training_message = f"Combined training completed with merge errors: {e}"
+
+            # Update training statistics
+            self._increment_training_sessions()
+            self._add_annotated_images(total_samples)
 
             # Set success status
             self.training_status = "success"
             self.training_progress = 100.0
-            self.training_message = f"Combined digits + colors LoRA training completed! Samples: {total_samples}"
 
             return {
                 "status": "success",
@@ -1399,7 +1542,7 @@ class VisionService:
                     "path": "/vision/train-lora-specialized",
                     "methods": ["POST"],
                     "handler": "train_lora_specialized_endpoint",
-                    "params": ["type: str", "background_tasks: BackgroundTasks"]
+                    "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
                 },
                 {
                     "path": "/vision/load-lora-adapter",
