@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p data models train_logs
 
 # Create a script to ensure directories exist with correct permissions
-RUN echo '#!/bin/bash\nmkdir -p /tmp/librosa_cache /app/data/speech/waiting/en /app/data/speech/waiting/it /app/data/speech/processed /app/data/vision/colors/waiting /app/data/vision/colors/processed /app/data/vision/digits/waiting /app/data/vision/digits/processed /app/models /app/train_logs && echo "Directories created successfully"' > /app/create_dirs.sh && chmod +x /app/create_dirs.sh
+RUN echo '#!/bin/bash\nmkdir -p /tmp/librosa_cache /tmp/.cache /tmp/huggingface_cache /tmp/xdg_cache /tmp/numba_cache /app/data/speech/waiting/en /app/data/speech/waiting/it /app/data/speech/processed/en /app/data/speech/processed/it /app/data/vision/colors/waiting /app/data/vision/colors/processed /app/data/vision/digits/waiting /app/data/vision/digits/processed /app/models /app/train_logs && chmod 755 /tmp/.cache /tmp/huggingface_cache /tmp/xdg_cache && echo "Directories created successfully"' > /app/create_dirs.sh && chmod +x /app/create_dirs.sh
 
 # Copy application code
 COPY . .
@@ -40,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
 # Start the application with directory creation
-CMD ["/bin/bash", "-c", "export LIBROSA_CACHE_DIR=/tmp/librosa_cache && export LIBROSA_CACHE_LEVEL=0 && export NUMBA_CACHE_DIR=/tmp/numba_cache && /app/create_dirs.sh && uvicorn main:app --host 0.0.0.0 --port 8000"]
+CMD ["/bin/bash", "-c", "export LIBROSA_CACHE_DIR=/tmp/librosa_cache && export LIBROSA_CACHE_LEVEL=0 && export NUMBA_CACHE_DIR=/tmp/numba_cache && export HF_HOME=/tmp/huggingface_cache && export TRANSFORMERS_CACHE=/tmp/huggingface_cache && export XDG_CACHE_HOME=/tmp/xdg_cache && /app/create_dirs.sh && uvicorn main:app --host 0.0.0.0 --port 8000"]
