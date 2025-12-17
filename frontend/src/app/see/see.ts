@@ -24,6 +24,8 @@ interface Detection {
 export class See implements AfterViewInit, OnDestroy {
   @ViewChild('videoElement') videoElement!: ElementRef<HTMLVideoElement>;
   @ViewChild('canvasElement') canvasElement!: ElementRef<HTMLCanvasElement>;
+  @ViewChild('blueBoxCanvas') blueBoxCanvas!: ElementRef<HTMLCanvasElement>;
+  @ViewChild('staticImageElement') staticImageElement!: ElementRef<HTMLImageElement>;
 
   // Convert to Angular Signals for reactive state
   isComponentReady = signal(false);
@@ -185,6 +187,14 @@ export class See implements AfterViewInit, OnDestroy {
   async ngAfterViewInit() {
     await this.loadYOLOModel();
     await this.loadAvailableTags();
+
+    // Add onload event handler to static image element to draw blue box
+    if (this.staticImageElement) {
+      this.staticImageElement.nativeElement.onload = () => {
+        this.drawBlueBox();
+      };
+    }
+
     this.isComponentReady.set(true);
   }
 
@@ -261,6 +271,32 @@ export class See implements AfterViewInit, OnDestroy {
       this.isCameraActive.set(true);
       this.isLoading.set(false);
       this.status.set('Camera active');
+
+      // Clear any existing detections and draw blue box when camera starts
+      this.detections.set([]);
+      this.clearCanvas();
+
+      console.log("About to check blueBoxCanvas availability...");
+      console.log("blueBoxCanvas exists:", !!this.blueBoxCanvas);
+
+      if (!this.blueBoxCanvas) {
+        console.log("blueBoxCanvas ViewChild not available yet!");
+        // Try again after a longer delay
+        setTimeout(() => {
+          console.log("Retrying blue box draw after longer delay...");
+          console.log("blueBoxCanvas now exists:", !!this.blueBoxCanvas);
+          if (this.blueBoxCanvas) {
+            this.drawBlueBox();
+            console.log("Blue box drawn after retry");
+          } else {
+            console.log("blueBoxCanvas still not available!");
+          }
+        }, 500);
+      } else {
+        console.log("blueBoxCanvas available, drawing immediately");
+        this.drawBlueBox();
+        console.log("Blue box drawn immediately");
+      }
 
       console.log('Camera started successfully, isCameraActive:', this.isCameraActive());
 
@@ -348,6 +384,7 @@ export class See implements AfterViewInit, OnDestroy {
       // Create FormData to send image to backend
       const formData = new FormData();
       formData.append('file', imageBlob, 'captured_image.jpg');
+      formData.append('model', this.selectedModel()); // Send active model selection
 
       // Call backend detection API
       this.status.set('Sending image to backend for detection...');
@@ -412,6 +449,11 @@ export class See implements AfterViewInit, OnDestroy {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Always redraw the blue box (when camera is active OR when we have a captured image)
+    if (this.isCameraActive() || this.showStaticImage()) {
+      this.drawBlueBox();
+    }
+
     this.detections().forEach((detection: Detection) => {
       // Draw box
       ctx.strokeStyle = '#00FF00';
@@ -437,6 +479,33 @@ export class See implements AfterViewInit, OnDestroy {
     if (ctx) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
+  }
+
+  private drawBlueBox() {
+    if (!this.blueBoxCanvas) return;
+    const canvas = this.blueBoxCanvas.nativeElement;
+    const ctx = canvas.getContext('2d')!;
+    if (!ctx) return;
+
+    // Clear the blue box canvas first
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Calculate center position for 200x200 box on 640x480 canvas
+    const boxWidth = 200;
+    const boxHeight = 200;
+    const centerX = (canvas.width - boxWidth) / 2;  // (640 - 200) / 2 = 220
+    const centerY = (canvas.height - boxHeight) / 2; // (480 - 200) / 2 = 140
+
+    // Draw blue rectangle
+    ctx.strokeStyle = '#0000FF'; // Blue color
+    ctx.lineWidth = 3;
+    ctx.strokeRect(centerX, centerY, boxWidth, boxHeight);
+
+    // Optional: Add a label
+    ctx.fillStyle = '#0000FF';
+    ctx.font = '16px Arial';
+    ctx.fillText('Center Box (200x200)', centerX, centerY - 5);
+    console.log("Blue box drawn on canvas", ctx);
   }
 
   enterCorrectionMode() {

@@ -95,7 +95,7 @@
            class="captured-image"
            alt="Captured frame">
 
-      <!-- Bounding box canvas (always visible) -->
+      <!-- Detection bounding box canvas (interactive) -->
       <canvas #canvasElement
               [width]="canvasWidth()"
               [height]="canvasHeight()"
@@ -104,6 +104,12 @@
               (mousedown)="onMouseDown($event)"
               (mousemove)="onMouseMove($event)"
               (mouseup)="onMouseUp($event)"></canvas>
+
+      <!-- Blue box overlay canvas (non-interactive) -->
+      <canvas #blueBoxCanvas
+              [width]="canvasWidth()"
+              [height]="canvasHeight()"
+              class="blue-box-canvas"></canvas>
     </div>
 
     <div class="detection-controls">

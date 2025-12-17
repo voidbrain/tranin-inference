@@ -916,9 +916,21 @@ class VisionService:
     # ===== VISION-SPECIFIC ENDPOINT METHODS =====
     # These methods wrap the service functionality for API endpoints
 
-    async def detect_objects_endpoint(self, file: "UploadFile") -> dict:
+    async def detect_objects_endpoint(self, file: "UploadFile", model: str = "base") -> dict:
         """API endpoint wrapper for object detection"""
         file_bytes = await file.read()
+
+        # Set the model based on the frontend selection
+        if model == "base":
+            self.model = None
+            self.using_base_model = True
+        elif model in ["digits", "colors", "merged"]:
+            # Load the appropriate model
+            if model == "merged":
+                await self.load_merged_model({"training_type": "merged"})
+            else:
+                await self.load_lora_adapter({"training_type": model})
+
         return await self.detect_objects(file_bytes)
 
     def get_model_status_endpoint(self) -> dict:
@@ -1257,7 +1269,7 @@ class VisionService:
                     "path": "/vision/detect",
                     "methods": ["POST"],
                     "handler": "detect_objects_endpoint",
-                    "params": ["file: UploadFile"]
+                    "params": ["file: UploadFile", "model: str"]
                 },
                 {
                     "path": "/vision/train-digits-lora",

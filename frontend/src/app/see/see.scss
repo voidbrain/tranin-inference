@@ -72,12 +72,21 @@
       position: absolute;
       top: 0;
       left: 0;
+      z-index: 10; // Ensure canvas is above video/image
       cursor: crosshair;
       pointer-events: none;
 
       &.active {
         pointer-events: auto;
       }
+    }
+
+    .blue-box-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 5; // Below detection canvas but above video/image
+      pointer-events: none; // Never interactive
     }
   }
 

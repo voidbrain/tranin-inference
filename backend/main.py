@@ -288,20 +288,22 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                 upload_param = upload_params[0]
                 query_param = query_params[0]
 
-                async def post_mixed_endpoint(audio_file: UploadFile = File(...), language: str = Query(...)):
-                    try:
-                        if is_async_method:
-                            return await handler_method(audio_file, language)
-                        else:
-                            import asyncio
-                            import concurrent.futures
-                            loop = asyncio.get_event_loop()
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                return await loop.run_in_executor(executor, handler_method, audio_file, language)
-                    except Exception as e:
-                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
-
-                endpoint_function = post_mixed_endpoint
+                # Create dynamic parameter names instead of hardcoding
+                exec(f"""
+async def post_mixed_endpoint({upload_param}: UploadFile = File(...), {query_param}: str = Query(...)):
+    try:
+        if is_async_method:
+            return await handler_method({upload_param}, {query_param})
+        else:
+            import asyncio
+            import concurrent.futures
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, handler_method, {upload_param}, {query_param})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload error: {{str(e)}}")
+""")
+                endpoint_function = locals()['post_mixed_endpoint']
 
             elif len(upload_params) == 1 and len(query_params) == 2:
                 # Special case: one file upload + two query parameters
@@ -309,39 +311,43 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                 query_param1 = query_params[0]
                 query_param2 = query_params[1]
 
-                async def post_mixed_endpoint_2qp(audio_file: UploadFile = File(...), language: str = Query(...), transcript: str = Query(...)):
-                    try:
-                        if is_async_method:
-                            return await handler_method(audio_file, language, transcript)
-                        else:
-                            import asyncio
-                            import concurrent.futures
-                            loop = asyncio.get_event_loop()
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                return await loop.run_in_executor(executor, handler_method, audio_file, language, transcript)
-                    except Exception as e:
-                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
-
-                endpoint_function = post_mixed_endpoint_2qp
+                # Create dynamic parameter names
+                exec(f"""
+async def post_mixed_endpoint_2qp({upload_param}: UploadFile = File(...), {query_param1}: str = Query(...), {query_param2}: str = Query(...)):
+    try:
+        if is_async_method:
+            return await handler_method({upload_param}, {query_param1}, {query_param2})
+        else:
+            import asyncio
+            import concurrent.futures
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, handler_method, {upload_param}, {query_param1}, {query_param2})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload error: {{str(e)}}")
+""")
+                endpoint_function = locals()['post_mixed_endpoint_2qp']
 
             elif len(upload_params) == 1 and len(query_params) == 0:
                 # Standard file upload only
                 param_name = upload_params[0]
 
-                async def post_file_upload_endpoint(audio_file: UploadFile = File(...)):
-                    try:
-                        if is_async_method:
-                            return await handler_method(audio_file)
-                        else:
-                            import asyncio
-                            import concurrent.futures
-                            loop = asyncio.get_event_loop()
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                return await loop.run_in_executor(executor, handler_method, audio_file)
-                    except Exception as e:
-                        raise HTTPException(status_code=500, detail=f"File upload error: {str(e)}")
-
-                endpoint_function = post_file_upload_endpoint
+                # Create dynamic parameter name instead of hardcoding
+                exec(f"""
+async def post_file_upload_endpoint({param_name}: UploadFile = File(...)):
+    try:
+        if is_async_method:
+            return await handler_method({param_name})
+        else:
+            import asyncio
+            import concurrent.futures
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                return await loop.run_in_executor(executor, handler_method, {param_name})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload error: {{str(e)}}")
+""")
+                endpoint_function = locals()['post_file_upload_endpoint']
             else:
                 # Fallback for other cases
                 async def post_file_upload_fallback(file: UploadFile = File(...)):
