@@ -22,8 +22,8 @@ os.environ['XDG_RUNTIME_DIR'] = '/tmp/xdg-runtime'
 os.environ['DISPLAY'] = ':0'
 
 # Direct service imports
-from speech_service import SpeechService
-from vision_service import VisionService
+from speech.speech_service import SpeechService
+from vision.vision_service import VisionService
 
 # ===== SERVICE CONFIGURATION =====
 def get_service_configurations():

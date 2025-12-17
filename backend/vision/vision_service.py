@@ -1,45 +1,18 @@
 """
 YOLO Service for Computer Vision
-Handles object detection, model training, and fine-tuning
+Main service class that combines all vision functionality via mixins
 """
-import os
 import datetime
-import base64
-import io
-import json
 from pathlib import Path
-from PIL import Image
-from fastapi import Form
 
-# Lazy imports - loaded on first use to avoid import errors during configuration
-_ultralytics = None
-_torch = None
+from .vision_inference import VisionInferenceMixin
+from .vision_training import VisionTrainingMixin
+from .vision_data import VisionDataMixin
+from .vision_models import VisionModelsMixin
+from .vision_endpoints import VisionEndpointsMixin
 
-def _import_vision_libraries():
-    """Lazy import of computer vision libraries"""
-    global _ultralytics, _torch
-    if _ultralytics is None:
-        import ultralytics
-        import torch
-        # Configure ultralytics to use non-conflicting directories
-        # Since we only use ultralytics for inference, not training, we set minimal paths
-        ultralytics.settings.update({
-            'weights_dir': 'models/vision',  # Where to find model weights
-            'runs_dir': 'models/vision/temp/runs',  # Training runs (we don't use this)
-            'datasets_dir': 'models/vision/temp/datasets',  # Datasets (we don't use this)
-        })
-        _ultralytics = ultralytics
-        _torch = torch
 
-def _get_ultralytics():
-    _import_vision_libraries()
-    return _ultralytics
-
-def _get_torch():
-    _import_vision_libraries()
-    return _torch
-
-class VisionService:
+class VisionService(VisionInferenceMixin, VisionTrainingMixin, VisionDataMixin, VisionModelsMixin, VisionEndpointsMixin):
     """Service for handling YOLO computer vision functionality"""
 
     def __init__(self, models_dir: str = "models/vision", data_dir: str = "data/vision"):
@@ -74,8 +47,6 @@ class VisionService:
         # Merged models directory - under vision service
         self.merged_dir = Path(models_dir) / "merged"
         self.merged_dir.mkdir(exist_ok=True, parents=True)
-
-        # Training statistics derived from logs (no separate stats file)
 
         # Auto-load latest merged model on startup
         self._load_merged_model_if_available()
