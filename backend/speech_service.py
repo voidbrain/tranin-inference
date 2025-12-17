@@ -271,61 +271,248 @@ class SpeechService:
 
             self._add_training_log(f"Found {len(training_files)} training samples")
 
-            # Always use mock training for demo/prototype purposes
-            # Real ML libraries cause compatibility issues in containerized environments
-            libraries_available = False
-            missing_libraries = "Using mock training for demo purposes - real ML libraries not needed for prototype"
+            # Check if required ML libraries are available for real training
+            try:
+                # Try to import required libraries
+                from transformers import WhisperProcessor
+                from datasets import Dataset, Audio
+                from peft import LoraConfig, get_peft_model
+                import pandas as pd
+                libraries_available = True
+                missing_libraries = ""
+                self._add_training_log("Real ML libraries available - using actual training")
+            except ImportError as e:
+                libraries_available = False
+                missing_libraries = str(e)
+                self._add_training_log("Training libraries not available - using mock training")
+                self._add_training_log(f"Missing libraries: {missing_libraries}")
 
-            # Mock training implementation when libraries aren't available
-            self._add_training_log("Training libraries not available - using mock training")
-            self._add_training_log(f"Missing libraries: {missing_libraries}")
-            self._add_training_log("This is a demo implementation")
+            if libraries_available:
+                # Real training implementation
+                self._add_training_log("Starting real LoRA fine-tuning process...")
 
-            # Simulate training progress
-            for epoch in range(epochs):
-                self.training_progress = (epoch + 1) / epochs * 90.0
-                self.training_message = f"Mock training epoch {epoch + 1}/{epochs}"
-                self._add_training_log(f"Completed mock epoch {epoch + 1}")
-                import asyncio
-                await asyncio.sleep(0.5)  # Simulate training time
+                # 1. Move data from processed to train for training
+                self._add_training_log("Preparing training data...")
+                self._move_from_processed_to_train(language)
 
-            # Create mock model output
-            output_dir = output_dir or self.models_dir / f"speech_{language}"
-            output_dir = Path(output_dir)
-            output_dir.mkdir(exist_ok=True, parents=True)
+                # 2. Prepare dataset from stored training data
+                self.training_progress = 10.0
+                self._add_training_log("Preparing training dataset...")
 
-            final_model_path = output_dir / "final_model"
-            final_model_path.mkdir(exist_ok=True)
+                # Load and preprocess training data
+                data = []
+                for txt_file in training_files:
+                    # Find corresponding audio file (now with .webm extension)
+                    audio_file = txt_file.with_suffix('.webm')
+                    if not audio_file.exists():
+                        # Try .wav extension as fallback
+                        audio_file = txt_file.with_suffix('.wav')
+                    if audio_file.exists():
+                        with open(txt_file, 'r', encoding='utf-8') as f:
+                            transcript = f.read().strip()
 
-            # Create a mock model file
-            mock_model_file = final_model_path / "pytorch_model.bin"
-            with open(mock_model_file, 'w') as f:
-                f.write("# Mock trained Whisper model\n")
-                f.write(f"# Language: {language}\n")
-                f.write(f"# Training samples: {len(training_files)}\n")
-                f.write("# This is a demo model file\n")
+                        data.append({
+                            "audio": str(audio_file),
+                            "text": transcript
+                        })
 
-            self.training_progress = 95.0
-            self.training_message = "Saving mock model..."
-            self._add_training_log("Saving mock model")
+                if not data:
+                    raise Exception("No valid training pairs found")
 
-            # Move processed training data to avoid reuse
-            self._move_processed_training_data(language)
+                self._add_training_log(f"Loaded {len(data)} complete audio-transcript pairs")
+                # Create HF dataset
+                dataset = Dataset.from_pandas(pd.DataFrame(data))
+                self.training_progress = 20.0
 
-            # Set success status
-            self.training_status = "success"
-            self.training_progress = 100.0
-            self.training_message = "Mock training completed successfully!"
-            self._add_training_log("Mock training completed successfully!")
+                # 2. Configure LoRA
+                self.training_message = "Configuring LoRA adapters..."
+                self._add_training_log("Configuring LoRA adapters...")
+                lora_config = LoraConfig(
+                    r=32,  # rank dimension
+                    lora_alpha=64,  # scaling parameter
+                    target_modules=["q_proj", "v_proj"],  # attention layers to adapt
+                    lora_dropout=0.1,
+                    bias="none"
+                )
 
-            return {
-                "status": "success",
-                "model_path": str(final_model_path),
-                "language": language,
-                "epochs_trained": epochs,
-                "training_samples": len(training_files),
-                "note": "This was mock training - ML libraries not available"
-            }
+                # 3. Load processor and model with LoRA
+                self.training_message = "Loading Whisper model with LoRA..."
+                self._add_training_log("Loading Whisper processor and model with LoRA...")
+                processor = WhisperProcessor.from_pretrained("openai/whisper-tiny")
+
+                # Convert openai-whisper to HF format for LoRA
+                # We'll use transformers' Whisper implementation for PEFT compatibility
+                from transformers import WhisperForConditionalGeneration
+
+                model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny")
+                model = get_peft_model(model, lora_config)
+
+                # 4. Data preprocessing
+                self.training_progress = 30.0
+                self.training_message = "Preprocessing audio data..."
+                self._add_training_log("Preprocessing audio data...")
+
+                def preprocess_function(batch):
+                    audio = batch["audio"]
+
+                    # Load audio using lazy import
+                    librosa = _get_librosa()
+                    audio_array, sample_rate = librosa.load(audio, sr=16000)
+                    input_features = processor(audio_array, sampling_rate=sample_rate).input_features[0]
+
+                    # Process text
+                    labels = processor(text=batch["text"]).input_ids[0]
+
+                    return {
+                        "input_features": input_features,
+                        "labels": labels
+                    }
+
+                processed_dataset = dataset.map(preprocess_function)
+
+                # 5. Training setup
+                self.training_progress = 40.0
+                self.training_message = "Setting up training environment..."
+                self._add_training_log("Setting up training environment...")
+                from transformers import TrainingArguments, Trainer
+
+                training_args = TrainingArguments(
+                    output_dir=str(self.models_dir / f"temp_training_{language}"),
+                    num_train_epochs=epochs,
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=4,
+                    save_steps=100,
+                    logging_steps=25,
+                    learning_rate=1e-5,
+                    warmup_steps=50,
+                    save_total_limit=2,
+                    eval_strategy="no",
+                    load_best_model_at_end=False,
+                    metric_for_best_model="loss",
+                    greater_is_better=False,
+                    dataloader_pin_memory=False
+                )
+
+                # 6. Initialize trainer
+                self.training_progress = 50.0
+                self.training_message = "Starting LoRA fine-tuning..."
+                self._add_training_log("Starting LoRA fine-tuning...")
+                trainer = Trainer(
+                    model=model,
+                    args=training_args,
+                    train_dataset=processed_dataset,
+                    tokenizer=processor,
+                )
+
+                # 7. Train the model
+                trainer.train()
+
+                # 8. Save the fine-tuned model to merged directory
+                self.training_progress = 90.0
+                self.training_message = "Saving fine-tuned model..."
+                self._add_training_log("Saving fine-tuned model")
+
+                # Save to merged directory with proper naming
+                merged_model_path = self.merged_dir / f"speech_{language}.pt"
+                trainer.save_model(str(merged_model_path))
+
+                # Save LoRA adapters separately (optional)
+                lora_dir = self.models_dir / "loras" / language
+                lora_dir.mkdir(exist_ok=True, parents=True)
+                model.save_pretrained(str(lora_dir))
+
+                # 9. Create ONNX export
+                self.training_progress = 95.0
+                self.training_message = "Creating ONNX export..."
+                self._add_training_log("Creating ONNX export...")
+
+                try:
+                    from transformers.onnx import export
+                    import torch
+
+                    # Create dummy input for ONNX export
+                    dummy_input = torch.randn(1, 80, 3000)  # Typical Whisper input shape
+
+                    # Export to ONNX
+                    onnx_path = self.merged_dir / f"speech_{language}.onnx"
+                    export(
+                        preprocessor=processor,
+                        model=model,
+                        config=self.merged_dir / f"speech_{language}_config.json",
+                        opset=13,
+                        output=onnx_path
+                    )
+                    self._add_training_log("ONNX export completed")
+                except Exception as e:
+                    self._add_training_log(f"ONNX export failed: {str(e)}")
+
+                # 10. Clean up old LoRA models to save disk space
+                self._cleanup_old_lora_models(f"speech_{language}")
+
+                # 11. Move processed training data to avoid reuse
+                self._move_processed_training_data(language)
+
+                # Set success status
+                self.training_status = "success"
+                self.training_progress = 100.0
+                self.training_message = "Real training completed successfully!"
+                self._add_training_log("Real training completed successfully!")
+
+                return {
+                    "status": "success",
+                    "model_path": str(merged_model_path),
+                    "language": language,
+                    "epochs_trained": epochs,
+                    "training_samples": len(data),
+                    "lora_config": str(lora_config)
+                }
+            else:
+                # Mock training implementation when libraries aren't available
+                self._add_training_log("This is a demo implementation")
+
+                # Simulate training progress
+                for epoch in range(epochs):
+                    self.training_progress = (epoch + 1) / epochs * 90.0
+                    self.training_message = f"Mock training epoch {epoch + 1}/{epochs}"
+                    self._add_training_log(f"Completed mock epoch {epoch + 1}")
+                    import asyncio
+                    await asyncio.sleep(0.5)  # Simulate training time
+
+                # Create mock model output in merged directory
+                merged_model_path = self.merged_dir / f"speech_{language}.pt"
+                with open(merged_model_path, 'w') as f:
+                    f.write("# Mock trained Whisper model\n")
+                    f.write(f"# Language: {language}\n")
+                    f.write(f"# Training samples: {len(training_files)}\n")
+                    f.write("# This is a demo model file\n")
+
+                # Create mock ONNX file
+                onnx_path = self.merged_dir / f"speech_{language}.onnx"
+                with open(onnx_path, 'w') as f:
+                    f.write("# Mock ONNX export\n")
+                    f.write(f"# Language: {language}\n")
+
+                self.training_progress = 95.0
+                self.training_message = "Saving mock model..."
+                self._add_training_log("Saving mock model")
+
+                # Move processed training data to avoid reuse
+                self._move_processed_training_data(language)
+
+                # Set success status
+                self.training_status = "success"
+                self.training_progress = 100.0
+                self.training_message = "Mock training completed successfully!"
+                self._add_training_log("Mock training completed successfully!")
+
+                return {
+                    "status": "success",
+                    "model_path": str(merged_model_path),
+                    "language": language,
+                    "epochs_trained": epochs,
+                    "training_samples": len(training_files),
+                    "note": "This was mock training - real ML libraries not available"
+                }
 
         except Exception as e:
             # Set error status
