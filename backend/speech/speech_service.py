@@ -2,10 +2,11 @@
 Whisper Service for Speech Recognition
 Main service class that combines all speech functionality via mixins
 """
+import os
 import datetime
 from pathlib import Path
 
-from .speech_inference import SpeechInferenceMixin
+from .speech_inference import SpeechInferenceMixin, _get_whisper
 from .speech_training import SpeechTrainingMixin
 from .speech_data import SpeechDataMixin
 from .speech_models import SpeechModelsMixin
@@ -54,6 +55,98 @@ class SpeechService(SpeechInferenceMixin, SpeechTrainingMixin, SpeechDataMixin, 
 
         # Auto-load best available model
         self._load_lora_adapter_if_available()
+
+    @classmethod
+    def get_service_config(cls):
+        """Return the service configuration with endpoints"""
+        return {
+            "endpoints": [
+                {
+                    "path": "/speech/status",
+                    "methods": ["GET"],
+                    "handler": "get_whisper_status_endpoint"
+                },
+                {
+                    "path": "/speech/training-count",
+                    "methods": ["GET"],
+                    "handler": "speech_training_count_endpoint"
+                },
+                {
+                    "path": "/speech/training-status",
+                    "methods": ["GET"],
+                    "handler": "get_whisper_training_status_endpoint"
+                },
+                {
+                    "path": "/speech/training-status-details",
+                    "methods": ["GET"],
+                    "handler": "get_whisper_training_status_details_endpoint"
+                },
+                {
+                    "path": "/speech/lora-fine-tune",
+                    "methods": ["POST"],
+                    "handler": "start_whisper_lora_fine_tuning_endpoint",
+                    "params": ["request", "background_tasks"]
+                },
+                {
+                    "path": "/speech/load-lora-adapter",
+                    "methods": ["POST"],
+                    "handler": "load_whisper_lora_adapter_endpoint",
+                    "params": ["adapter_path: str"]
+                },
+                {
+                    "path": "/speech/train-language-lora/{language}",
+                    "methods": ["POST"],
+                    "handler": "train_language_lora_endpoint",
+                    "params": ["language: str", "background_tasks"]
+                },
+                {
+                    "path": "/speech/create-merged-model",
+                    "methods": ["POST"],
+                    "handler": "create_merged_model_endpoint",
+                    "params": ["background_tasks"]
+                },
+                {
+                    "path": "/speech/merged-model-status",
+                    "methods": ["GET"],
+                    "handler": "get_merged_model_status_endpoint"
+                },
+                {
+                    "path": "/speech/load-language-model",
+                    "methods": ["POST"],
+                    "handler": "load_language_model_endpoint",
+                    "params": ["language: str"]
+                },
+                {
+                    "path": "/speech/transcribe-audio",
+                    "methods": ["POST"],
+                    "handler": "transcribe_audio_endpoint",
+                    "params": ["audio_file: UploadFile", "language"]
+                },
+                {
+                    "path": "/speech/upload-speech-training-data",
+                    "methods": ["POST"],
+                    "handler": "upload_speech_training_data_endpoint_alt",
+                    "params": ["request"]
+                },
+                {
+                    "path": "/speech/whisper-fine-tune-lora",
+                    "methods": ["POST"],
+                    "handler": "whisper_fine_tune_lora_endpoint",
+                    "params": ["training_data: dict", "background_tasks"]
+                },
+                {
+                    "path": "/speech/whisper-training-status-details",
+                    "methods": ["GET"],
+                    "handler": "whisper_training_status_details_endpoint"
+                },
+                {
+                    "path": "/speech/clear-training-data/{language}",
+                    "methods": ["DELETE"],
+                    "handler": "clear_training_data_endpoint",
+                    "params": ["language: str"]
+                }
+            ]
+        }
 
     def _load_model(self, model_path: str = None):
         """Load Whisper model from local path or download if necessary"""

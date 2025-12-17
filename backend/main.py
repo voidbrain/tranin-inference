@@ -183,7 +183,26 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
     elif methods == ["POST"] and params:
         from fastapi import Request
-        if params == ["training_data: dict", "background_tasks: BackgroundTasks"]:
+
+        # Check for request-only endpoints first
+        if params == ["request: Request"] or params == ["request"]:
+            # Special case: Request object only, no additional parameters
+            async def post_request_only_endpoint(request: Request):
+                try:
+                    if is_async_method:
+                        return await handler_method(request)
+                    else:
+                        import asyncio
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            return await loop.run_in_executor(executor, handler_method, request)
+                except Exception as e:
+                    raise HTTPException(status_code=500, detail=f"Request endpoint error: {str(e)}")
+
+            endpoint_function = post_request_only_endpoint
+
+        elif params == ["training_data: dict", "background_tasks: BackgroundTasks"]:
             # Special case: training data dict + background tasks dependency injection
             from fastapi import BackgroundTasks
 
@@ -237,11 +256,28 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
             endpoint_function = upload_speech_training_data_endpoint
 
-        elif params and params[0] == "request: Request":
+        elif params and (params[0] == "request: Request" or params[0] == "request"):
             # Special case: endpoints that handle raw Request objects (multipart form data)
             from fastapi import Request
 
-            if len(params) == 2 and params[1] == "model: str":
+            if len(params) == 1 and params[0] == "request: Request":
+                # Special case: Request object only, no additional parameters
+                async def post_request_only_endpoint(request: Request):
+                    try:
+                        if is_async_method:
+                            return await handler_method(request)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, request)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"Request endpoint error: {str(e)}")
+
+                endpoint_function = post_request_only_endpoint
+
+            elif len(params) == 2 and params[1] == "model: str":
                 # Special case for vision detect endpoint with model parameter
                 async def post_request_with_model_endpoint(request: Request, model: str = "base"):
                     try:
@@ -309,11 +345,12 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
             # Instead of exec(), create functions with proper variable binding
 
             if len(upload_params) == 1 and len(query_params) == 1:
-                # Special case: one file upload + one query parameter
+                # Special case: one file upload + one form parameter
                 upload_param = upload_params[0]
-                query_param = query_params[0]
+                form_param = query_params[0]
 
-                async def post_mixed_endpoint(audio_file: UploadFile = File(...), language: str = Query(...)):
+                from fastapi import Form
+                async def post_mixed_endpoint(audio_file: UploadFile = File(...), language: str = Form(...)):
                     try:
                         args = [audio_file, language]
                         if is_async_method:

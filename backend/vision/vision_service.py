@@ -51,6 +51,94 @@ class VisionService(VisionInferenceMixin, VisionTrainingMixin, VisionDataMixin, 
         # Auto-load latest merged model on startup
         self._load_merged_model_if_available()
 
+    @classmethod
+    def get_service_config(cls):
+        """Return the service configuration with endpoints"""
+        return {
+            "endpoints": [
+                {
+                    "path": "/vision/tags/{detection_mode}",
+                    "methods": ["GET"],
+                    "handler": "get_tags_endpoint",
+                    "params": ["detection_mode: str"]
+                },
+                {
+                    "path": "/vision/model-status",
+                    "methods": ["GET"],
+                    "handler": "get_model_status_endpoint"
+                },
+                {
+                    "path": "/vision/upload-training-data",
+                    "methods": ["POST"],
+                    "handler": "upload_training_data_endpoint",
+                    "params": ["training_data: dict"]
+                },
+                {
+                    "path": "/vision/specialized-training-count/{training_type}",
+                    "methods": ["GET"],
+                    "handler": "get_specialized_training_count_endpoint",
+                    "params": ["training_type: str"]
+                },
+                {
+                    "path": "/vision/training-queue-status",
+                    "methods": ["GET"],
+                    "handler": "get_training_queue_status_endpoint"
+                },
+                {
+                    "path": "/vision/training-logs",
+                    "methods": ["GET"],
+                    "handler": "get_training_logs_endpoint"
+                },
+                {
+                    "path": "/vision/reset-model",
+                    "methods": ["POST"],
+                    "handler": "reset_model_endpoint"
+                },
+                {
+                    "path": "/vision/detect",
+                    "methods": ["POST"],
+                    "handler": "detect_objects_endpoint",
+                    "params": ["request: Request", "model: str"]
+                },
+                {
+                    "path": "/vision/train-digits-lora",
+                    "methods": ["POST"],
+                    "handler": "train_digits_lora_endpoint",
+                    "params": ["background_tasks: BackgroundTasks"]
+                },
+                {
+                    "path": "/vision/train-colors-lora",
+                    "methods": ["POST"],
+                    "handler": "train_colors_lora_endpoint",
+                    "params": ["background_tasks: BackgroundTasks"]
+                },
+                {
+                    "path": "/vision/create-merged-model",
+                    "methods": ["POST"],
+                    "handler": "create_merged_model_endpoint",
+                    "params": ["background_tasks: BackgroundTasks"]
+                },
+                {
+                    "path": "/vision/train-lora-specialized",
+                    "methods": ["POST"],
+                    "handler": "train_lora_specialized_endpoint",
+                    "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
+                },
+                {
+                    "path": "/vision/load-lora-adapter",
+                    "methods": ["POST"],
+                    "handler": "load_lora_adapter_endpoint",
+                    "params": ["training_data: dict"]
+                },
+                {
+                    "path": "/vision/train",
+                    "methods": ["POST"],
+                    "handler": "train_endpoint",
+                    "params": ["training_data: dict", "background_tasks: BackgroundTasks"]
+                }
+            ]
+        }
+
     def _add_training_log(self, message: str, metadata: dict = None):
         """Add a training log message with optional metadata"""
         timestamp = datetime.datetime.now().isoformat()
