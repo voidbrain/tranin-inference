@@ -1,7 +1,0 @@
-
-path: /app/data
-train: train/images
-val: train/images
-
-names:
-  0: person

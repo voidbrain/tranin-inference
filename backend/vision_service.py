@@ -21,11 +21,12 @@ def _import_vision_libraries():
     if _ultralytics is None:
         import ultralytics
         import torch
+        # Configure ultralytics to use non-conflicting directories
+        # Since we only use ultralytics for inference, not training, we set minimal paths
         ultralytics.settings.update({
-            'runs_dir': 'data/vision/runs',
-            'weights_dir': 'models/vision',
-            'datasets_dir': 'data/vision/datasets',
-            'models_dir': 'models/vision',
+            'weights_dir': 'models/vision',  # Where to find model weights
+            'runs_dir': 'models/vision/temp/runs',  # Training runs (we don't use this)
+            'datasets_dir': 'models/vision/temp/datasets',  # Datasets (we don't use this)
         })
         _ultralytics = ultralytics
         _torch = torch
@@ -81,6 +82,17 @@ class VisionService:
 
         # Auto-load latest merged model on startup
         self._load_merged_model_if_available()
+
+    def _add_training_log(self, message: str, metadata: dict = None):
+        """Add a training log message with optional metadata"""
+        timestamp = datetime.datetime.now().isoformat()
+        log_entry = {
+            "timestamp": timestamp,
+            "message": message,
+            "metadata": metadata or {}
+        }
+        self.training_logs.append(log_entry)
+        print(f"Training log: [{timestamp}] {message}")
 
     def _load_training_stats(self) -> dict:
         """Load training statistics from JSON file"""
@@ -835,15 +847,18 @@ class VisionService:
     async def train_specialized_lora(self, training_type: str = "digits") -> dict:
         """Train specialized LoRA adapter for digits or colors"""
         try:
+            self._add_training_log(f"Starting {training_type} LoRA training")
             # Set training status
             self.training_status = "running"
             self.training_progress = 0.0
             self.training_message = f"Initializing {training_type} LoRA training..."
             self.training_start_time = datetime.datetime.now()
+            self._add_training_log(f"Training status set to running")
 
             # Prepare dataset
             self.training_message = f"Preparing {training_type} dataset..."
             dataset_info = self._prepare_specialized_dataset(training_type)
+            self._add_training_log(f"Prepared dataset with {dataset_info['sample_count']} samples")
 
             # Configure LoRA training parameters
             if training_type == "digits":
@@ -858,10 +873,12 @@ class VisionService:
                 raise Exception(f"Unknown training type: {training_type}")
 
             self.training_message = f"Training {training_type} LoRA (rank={lora_rank}, epochs={epochs})..."
+            self._add_training_log(f"Training LoRA adapter with rank={lora_rank}, epochs={epochs}")
 
             # Create output directories
             lora_output_dir = self.models_dir / "loras" / training_type
             lora_output_dir.mkdir(exist_ok=True, parents=True)
+            self._add_training_log(f"Created LoRA output directory: {lora_output_dir}")
 
             # YOLO LoRA training command would be:
             # yolo train model=base/yolov8n.pt lora=1 lora_rank={lora_rank}
@@ -870,7 +887,9 @@ class VisionService:
 
             # For now, simulate the training process
             import asyncio
+            self._add_training_log("Starting LoRA training simulation...")
             await asyncio.sleep(2)  # Simulate training time
+            self._add_training_log("LoRA training simulation completed")
 
             # Create mock LoRA file
             lora_file = lora_output_dir / f"{training_type}.safetensors"
@@ -878,6 +897,7 @@ class VisionService:
                 f.write(f"# Mock LoRA adapter for {training_type}\n")
                 f.write(f"# Rank: {lora_rank}\n")
                 f.write(f"# Epochs: {epochs}\n")
+            self._add_training_log(f"Created LoRA adapter file: {lora_file}")
 
             # Merge LoRA with base model to create usable model
             self.training_progress = 95.0
@@ -887,7 +907,7 @@ class VisionService:
             try:
                 # Call the merging script
                 import subprocess
-                merge_script = self.models_dir / "scripts" / "vision_merge_lora.py"
+                merge_script = Path("models/vision/scripts/vision_merge_lora.py")
                 base_model = self.models_dir / "base" / "yolov8n.pt"
 
                 if merge_script.exists() and base_model.exists():
@@ -896,7 +916,7 @@ class VisionService:
                         "--base", str(base_model),
                         "--lora", str(lora_file),
                         "--out", str(merged_model_path)
-                    ], capture_output=True, text=True, cwd=self.models_dir)
+                    ], capture_output=True, text=True)
 
                     if result.returncode == 0:
                         print(f"✓ Successfully merged {training_type} model: {merged_model_path}")
@@ -915,11 +935,16 @@ class VisionService:
             # Update training statistics
             self._increment_training_sessions()
             self._add_annotated_images(dataset_info["sample_count"])
+            self._add_training_log(f"Updated training statistics: sessions +1, images +{dataset_info['sample_count']}")
 
             # Set success status
             self.training_status = "success"
             self.training_progress = 100.0
             self.training_message = f"{training_type} LoRA training completed!"
+            self._add_training_log(f"{training_type} LoRA training completed successfully!", {
+                "type": "training_completed",
+                "specialization": training_type
+            })
 
             return {
                 "status": "success",
@@ -964,17 +989,19 @@ class VisionService:
             self.training_message = "Creating digits + colors merged model..."
 
             merged_pt_path = self.merged_dir / "digits_colors_merged.pt"
-            process = subprocess.Popen([
-                "python", "models/vision/scripts/merge_lora.py",
-                "--base", "yolov8n.pt",
+            merge_script = Path("models/vision/scripts/vision_merge_lora.py")
+            base_model = self.models_dir / "base" / "yolov8n.pt"
+
+            result = subprocess.run([
+                "python", str(merge_script),
+                "--base", str(base_model),
                 "--lora", str(digits_lora),
                 "--lora", str(colors_lora),
                 "--out", str(merged_pt_path)
-            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            ], capture_output=True, text=True)
 
-            stdout, _ = process.communicate()
-            if process.returncode != 0:
-                raise Exception(f"Failed to create digits+colors merged model: {stdout}")
+            if result.returncode != 0:
+                raise Exception(f"Failed to create digits+colors merged model: {result.stderr}")
 
             created_models.append({
                 "name": "digits_colors_merged",
@@ -987,16 +1014,15 @@ class VisionService:
             self.training_message = "Creating colors-only merged model..."
 
             colors_pt_path = self.merged_dir / "colors_merged.pt"
-            process = subprocess.Popen([
-                "python", "models/vision/scripts/merge_lora.py",
-                "--base", "yolov8n.pt",
+            result = subprocess.run([
+                "python", str(merge_script),
+                "--base", str(base_model),
                 "--lora", str(colors_lora),
                 "--out", str(colors_pt_path)
-            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            ], capture_output=True, text=True)
 
-            stdout, _ = process.communicate()
-            if process.returncode != 0:
-                raise Exception(f"Failed to create colors merged model: {stdout}")
+            if result.returncode != 0:
+                raise Exception(f"Failed to create colors merged model: {result.stderr}")
 
             created_models.append({
                 "name": "colors_merged",
@@ -1009,16 +1035,15 @@ class VisionService:
             self.training_message = "Creating digits-only merged model..."
 
             digits_pt_path = self.merged_dir / "digits_merged.pt"
-            process = subprocess.Popen([
-                "python", "models/vision/scripts/merge_lora.py",
-                "--base", "yolov8n.pt",
+            result = subprocess.run([
+                "python", str(merge_script),
+                "--base", str(base_model),
                 "--lora", str(digits_lora),
                 "--out", str(digits_pt_path)
-            ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            ], capture_output=True, text=True)
 
-            stdout, _ = process.communicate()
-            if process.returncode != 0:
-                raise Exception(f"Failed to create digits merged model: {stdout}")
+            if result.returncode != 0:
+                raise Exception(f"Failed to create digits merged model: {result.stderr}")
 
             created_models.append({
                 "name": "digits_merged",
@@ -1029,6 +1054,10 @@ class VisionService:
             self.training_progress = 100.0
             self.training_message = "All merged models created successfully!"
             self.training_status = "success"
+            self._add_training_log("Merged model creation completed successfully!", {
+                "type": "training_completed",
+                "specialization": "merged"
+            })
 
             return {
                 "status": "success",
@@ -1324,7 +1353,7 @@ class VisionService:
             try:
                 # Call the merging script to create merged models
                 import subprocess
-                merge_script = self.models_dir / "scripts" / "vision_merge_lora.py"
+                merge_script = Path("models/vision/scripts/vision_merge_lora.py")
                 base_model = self.models_dir / "base" / "yolov8n.pt"
 
                 merged_models_created = []
@@ -1338,7 +1367,7 @@ class VisionService:
                         "--lora", str(digits_lora_file),
                         "--lora", str(colors_lora_file),
                         "--out", str(merged_pt_path)
-                    ], capture_output=True, text=True, cwd=self.models_dir)
+                    ], capture_output=True, text=True)
 
                     if result.returncode == 0:
                         print(f"✓ Successfully created combined merged model: {merged_pt_path}")
@@ -1353,7 +1382,7 @@ class VisionService:
                         "--base", str(base_model),
                         "--lora", str(digits_lora_file),
                         "--out", str(digits_merged_path)
-                    ], capture_output=True, text=True, cwd=self.models_dir)
+                    ], capture_output=True, text=True)
 
                     if result_digits.returncode == 0:
                         print(f"✓ Successfully created digits merged model: {digits_merged_path}")
@@ -1365,7 +1394,7 @@ class VisionService:
                         "--base", str(base_model),
                         "--lora", str(colors_lora_file),
                         "--out", str(colors_merged_path)
-                    ], capture_output=True, text=True, cwd=self.models_dir)
+                    ], capture_output=True, text=True)
 
                     if result_colors.returncode == 0:
                         print(f"✓ Successfully created colors merged model: {colors_merged_path}")
@@ -1387,6 +1416,10 @@ class VisionService:
             # Set success status
             self.training_status = "success"
             self.training_progress = 100.0
+            self._add_training_log("Combined digits + colors LoRA training completed successfully!", {
+                "type": "training_completed",
+                "specialization": "combined"
+            })
 
             return {
                 "status": "success",
