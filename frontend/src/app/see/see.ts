@@ -385,12 +385,33 @@ export class See implements AfterViewInit, OnDestroy {
       const formData = new FormData();
       formData.append('file', imageBlob, 'captured_image.jpg');
 
+      // Add blue box coordinates for digit prioritization
+      const blueBoxCoords = {
+        x: 220,  // Center of 640px canvas minus half of 200px box
+        y: 140,  // Center of 480px canvas minus half of 200px box
+        width: 200,
+        height: 200
+      };
+      formData.append('blue_box', JSON.stringify(blueBoxCoords));
+
       // Call backend detection API with model as query parameter
       this.status.set('Sending image to backend for detection...');
-      const response: any = await this.http.post(`${this.backendUrl}/vision/detect?model=${this.selectedModel()}`, formData).toPromise();
+      const url = `${this.backendUrl}/vision/detect?model=${this.selectedModel()}`;
+
+      // Use fetch instead of Angular HTTP client for multipart form data to avoid UTF-8 decoding issues
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
 
       // Process backend response with separate digit/color detections
-      const digitDetections = (response.digitDetections || []).map((detection: any) => ({
+      const digitDetections = (responseData.digitDetections || []).map((detection: any) => ({
         label: detection.label,
         confidence: Math.round(detection.score * 100),
         x: Math.round(detection.box.xMin),
@@ -401,7 +422,7 @@ export class See implements AfterViewInit, OnDestroy {
         mode: 'digits' // Digits always get solid lines
       }));
 
-      const colorDetections = (response.colorDetections || []).map((detection: any) => ({
+      const colorDetections = (responseData.colorDetections || []).map((detection: any) => ({
         label: detection.label,
         confidence: Math.round(detection.score * 100),
         x: Math.round(detection.box.xMin),
@@ -418,7 +439,7 @@ export class See implements AfterViewInit, OnDestroy {
       // Replace existing detections for fresh analysis instead of accumulating
       this.detections.set(newDetectionResults);
       this.drawDetections();
-      this.status.set(`Detected ${response.digital_count || 0} digits, ${response.color_count || 0} colors using ${this.getModelStatusText()} (Real Model: ${!response.mock})`);
+      this.status.set(`Detected ${responseData.digital_count || 0} digits, ${responseData.color_count || 0} colors using ${this.getModelStatusText()} (Real Model: ${!responseData.mock})`);
     } catch (error) {
       console.error('Backend detection error:', error);
       this.status.set('Detection failed: ' + (error as Error).message);

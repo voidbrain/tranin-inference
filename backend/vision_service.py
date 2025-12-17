@@ -6,8 +6,10 @@ import os
 import datetime
 import base64
 import io
+import json
 from pathlib import Path
 from PIL import Image
+from fastapi import Form
 
 # Lazy imports - loaded on first use to avoid import errors during configuration
 _ultralytics = None
@@ -75,7 +77,7 @@ class VisionService:
         # Auto-load latest merged model on startup
         self._load_merged_model_if_available()
 
-    async def detect_objects(self, image_data: bytes) -> dict:
+    async def detect_objects(self, image_data: bytes, blue_box_coords: dict = None) -> dict:
         """Run object detection on image data using real YOLOv8 models"""
         if not self.model:
             raise Exception("YOLO model not loaded")
@@ -190,6 +192,10 @@ class VisionService:
             if use_mock or len(digit_detections) + len(color_detections) == 0:
                 digit_detections, color_detections = self._get_mock_detections(training_type, model_type)
 
+            # Apply blue box prioritization for digit detections if coordinates provided
+            if blue_box_coords:
+                digit_detections = self._prioritize_digits_in_blue_box(digit_detections, blue_box_coords)
+
             return {
                 "digitDetections": digit_detections,
                 "colorDetections": color_detections,
@@ -292,6 +298,73 @@ class VisionService:
         # Base model returns empty detections (no mocks)
 
         return digit_detections, color_detections
+
+    def _prioritize_digits_in_blue_box(self, digit_detections: list, blue_box_coords: dict) -> list:
+        """Boost confidence scores for digit detections within or overlapping the blue box area"""
+        if not blue_box_coords or not digit_detections:
+            return digit_detections
+
+        try:
+            # Extract blue box coordinates
+            blue_x = blue_box_coords.get('x', 0)
+            blue_y = blue_box_coords.get('y', 0)
+            blue_width = blue_box_coords.get('width', 0)
+            blue_height = blue_box_coords.get('height', 0)
+
+            blue_x2 = blue_x + blue_width
+            blue_y2 = blue_y + blue_height
+
+            # Process each digit detection
+            prioritized_detections = []
+
+            for detection in digit_detections:
+                box = detection.get('box', {})
+                digit_x1 = box.get('xMin', 0)
+                digit_y1 = box.get('yMin', 0)
+                digit_x2 = box.get('xMax', 0)
+                digit_y2 = box.get('yMax', 0)
+
+                # Calculate intersection area
+                inter_x1 = max(digit_x1, blue_x)
+                inter_y1 = max(digit_y1, blue_y)
+                inter_x2 = min(digit_x2, blue_x2)
+                inter_y2 = min(digit_y2, blue_y2)
+
+                # Check if there's any intersection
+                if inter_x2 > inter_x1 and inter_y2 > inter_y1:
+                    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+
+                    # Calculate digit box area
+                    digit_area = (digit_x2 - digit_x1) * (digit_y2 - digit_y1)
+
+                    # Calculate overlap percentage (intersection over digit area)
+                    overlap_percentage = inter_area / digit_area if digit_area > 0 else 0
+
+                    # Boost confidence for digits that overlap significantly with blue box
+                    original_score = detection.get('score', 0)
+                    boosted_score = original_score
+
+                    if overlap_percentage > 0.2:  # More than 20% overlap
+                        # Boost confidence, more for higher overlap
+                        boost_factor = 0.1 + (overlap_percentage * 0.2)  # 0.1 to 0.3 boost
+                        boosted_score = min(0.99, original_score + boost_factor)  # Cap at 0.99
+
+                        print(f"Boosted digit '{detection.get('label', '?')}' confidence from {original_score:.2f} to {boosted_score:.2f} (overlap: {overlap_percentage:.2f})")
+
+                    # Update detection with boosted score
+                    boosted_detection = detection.copy()
+                    boosted_detection['score'] = boosted_score
+                    prioritized_detections.append(boosted_detection)
+                else:
+                    # No overlap, keep original detection
+                    prioritized_detections.append(detection)
+
+            return prioritized_detections
+
+        except Exception as e:
+            print(f"Error in blue box prioritization: {e}")
+            # Return original detections if prioritization fails
+            return digit_detections
 
     def get_status(self) -> dict:
         """Get current status of YOLO service"""
@@ -916,9 +989,41 @@ class VisionService:
     # ===== VISION-SPECIFIC ENDPOINT METHODS =====
     # These methods wrap the service functionality for API endpoints
 
-    async def detect_objects_endpoint(self, file: "UploadFile", model: str = "base") -> dict:
+    async def detect_objects_endpoint(self, request: "Request", model: str = "base") -> dict:
         """API endpoint wrapper for object detection"""
+        from fastapi import Request
+        # Parse multipart form data manually to get both file and blue_box
+        form_data = await request.form()
+
+        # Debug: Print all form fields
+        print(f"🔍 FORM DATA DEBUG: Available fields: {list(form_data.keys())}")
+        for key, value in form_data.items():
+            print(f"🔍 FORM DATA DEBUG: {key} = {type(value)} (length: {len(str(value)) if hasattr(value, '__len__') else 'N/A'})")
+
+        file = form_data.get("file")
+        blue_box_str = form_data.get("blue_box")
+
+        if not file:
+            raise Exception("No file provided")
+
         file_bytes = await file.read()
+
+        # Parse blue box coordinates if provided (from FormData)
+        blue_box_coords = None
+        if blue_box_str:
+            try:
+                # blue_box_str should be a string containing JSON
+                if isinstance(blue_box_str, str):
+                    blue_box_coords = json.loads(blue_box_str)
+                    print(f"🔵 BLUE BOX DEBUG: Successfully parsed coordinates: {blue_box_coords}")
+                else:
+                    print(f"❌ BLUE BOX ERROR: Unexpected blue_box type: {type(blue_box_str)}, value: {repr(blue_box_str)}")
+            except json.JSONDecodeError as e:
+                print(f"❌ BLUE BOX ERROR: Failed to parse blue box coordinates: {e}")
+                print(f"❌ BLUE BOX ERROR: Raw blue_box value: {repr(blue_box_str)}")
+                blue_box_coords = None
+        else:
+            print(f"⚠️  BLUE BOX WARNING: No blue_box parameter received in request")
 
         # Set the model based on the frontend selection
         if model == "base":
@@ -931,7 +1036,7 @@ class VisionService:
             else:
                 await self.load_lora_adapter({"training_type": model})
 
-        return await self.detect_objects(file_bytes)
+        return await self.detect_objects(file_bytes, blue_box_coords)
 
     def get_model_status_endpoint(self) -> dict:
         """API endpoint wrapper for getting model status"""
@@ -1269,7 +1374,7 @@ class VisionService:
                     "path": "/vision/detect",
                     "methods": ["POST"],
                     "handler": "detect_objects_endpoint",
-                    "params": ["file: UploadFile", "model: str"]
+                    "params": ["request: Request", "model: str"]
                 },
                 {
                     "path": "/vision/train-digits-lora",

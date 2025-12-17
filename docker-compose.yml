@@ -20,7 +20,8 @@ services:
     volumes:
       - ./backend/data:/app/data
       - ./backend/models:/app/models
-      - ./backend/train_logs:/app/train_logs
+      - ./backend/models/speech/train_logs:/app/models/speech/train_logs
+      - ./backend/models/vision/train_logs:/app/models/vision/train_logs
     networks:
       - app-network
     restart: unless-stopped

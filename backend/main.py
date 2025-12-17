@@ -260,6 +260,52 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
             endpoint_function = upload_speech_training_data_endpoint
 
+        elif params and params[0] == "request: Request":
+            # Special case: endpoints that handle raw Request objects (multipart form data)
+            from fastapi import Request
+
+            if len(params) == 2 and params[1] == "model: str":
+                # Special case for vision detect endpoint with model parameter
+                async def post_request_with_model_endpoint(request: Request, model: str = "base"):
+                    try:
+                        args = [request, model]
+                        if is_async_method:
+                            return await handler_method(*args)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, *args)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"Request endpoint error: {str(e)}")
+
+                endpoint_function = post_request_with_model_endpoint
+            else:
+                # Generic fallback for other Request + query param combinations
+                async def post_request_generic_endpoint(request: Request, **query_params):
+                    try:
+                        # Extract query parameters
+                        query_args = []
+                        for param_spec in params[1:]:  # Skip the request parameter
+                            param_name = param_spec.split(':')[0]
+                            if param_name in query_params:
+                                query_args.append(query_params[param_name])
+
+                        args = [request] + query_args
+                        if is_async_method:
+                            return await handler_method(*args)
+                        else:
+                            import asyncio
+                            import concurrent.futures
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                return await loop.run_in_executor(executor, handler_method, *args)
+                    except Exception as e:
+                        raise HTTPException(status_code=500, detail=f"Request endpoint error: {str(e)}")
+
+                endpoint_function = post_request_generic_endpoint
+
         elif "UploadFile" in str(params):
             # Handle file upload endpoints (UploadFile parameters)
             from fastapi import UploadFile, File, Query
