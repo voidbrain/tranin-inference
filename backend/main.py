@@ -313,9 +313,9 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
                 upload_param = upload_params[0]
                 query_param = query_params[0]
 
-                async def post_mixed_endpoint(file: UploadFile = File(...), model: str = Query(...)):
+                async def post_mixed_endpoint(audio_file: UploadFile = File(...), language: str = Query(...)):
                     try:
-                        args = [file, model]
+                        args = [audio_file, language]
                         if is_async_method:
                             return await handler_method(*args)
                         else:
