@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
-import sqlite3
+
 import os
 
 class TrainingRequest(BaseModel):
@@ -60,28 +60,6 @@ def get_service_configurations():
 # Get configurations
 SERVICE_CONFIGS = get_service_configurations()
 
-# ===== DATABASE INITIALIZATION =====
-def initialize_databases(configs):
-    """Initialize databases for all services"""
-    Path("db").mkdir(exist_ok=True)
-
-    for service_name, config in configs.items():
-        db_name = f'db/{service_name}.db'
-
-        conn = sqlite3.connect(db_name)
-        cursor = conn.cursor()
-
-        if 'database_schema' in config and 'tables' in config['database_schema']:
-            for table_name, create_sql in config['database_schema']['tables'].items():
-                try:
-                    cursor.execute(create_sql.strip())
-                    print(f"✓ Created table '{table_name}' in {service_name} database")
-                except Exception as e:
-                    print(f"Warning: Could not create table '{table_name}' in {service_name}: {e}")
-
-        conn.commit()
-        conn.close()
-        print(f"✓ Database initialized for service: {service_name}")
 
 # ===== FASTAPI APPLICATION =====
 app = FastAPI(
@@ -124,8 +102,7 @@ def initialize_services(configs):
 
     return services
 
-# Initialize databases and services
-initialize_databases(SERVICE_CONFIGS)
+# Initialize services
 services = initialize_services(SERVICE_CONFIGS)
 
 # ===== ENDPOINT REGISTRATION =====

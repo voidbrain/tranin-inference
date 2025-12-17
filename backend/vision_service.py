@@ -1665,22 +1665,8 @@ names: {names}  # class names
 
     @classmethod
     def get_service_config(cls):
-        """Return the service configuration with endpoints and database schema"""
+        """Return the service configuration with endpoints"""
         return {
-            "database_schema": {
-                "tables": {
-                    "annotations": """
-                        CREATE TABLE IF NOT EXISTS annotations (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            service TEXT DEFAULT 'vision',
-                            filename TEXT NOT NULL,
-                            data TEXT NOT NULL,
-                            labels TEXT NOT NULL,
-                            timestamp TEXT NOT NULL
-                        )
-                    """
-                }
-            },
             "endpoints": [
                 {
                     "path": "/vision/tags/{detection_mode}",

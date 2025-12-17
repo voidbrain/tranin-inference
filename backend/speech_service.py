@@ -1435,33 +1435,8 @@ format: json  # Whisper expects JSON format with audio paths and transcripts
 
     @classmethod
     def get_service_config(cls):
-        """Return the service configuration with endpoints and database schema"""
+        """Return the service configuration with endpoints"""
         return {
-            "database_schema": {
-                "tables": {
-                    "annotations": """
-                        CREATE TABLE IF NOT EXISTS annotations (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            filename TEXT NOT NULL,
-                            data TEXT NOT NULL,
-                            labels TEXT NOT NULL,
-                            timestamp TEXT NOT NULL
-                        )
-                    """,
-                    "training_logs": """
-                        CREATE TABLE IF NOT EXISTS training_logs (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            timestamp TEXT NOT NULL,
-                            epoch INTEGER,
-                            accuracy REAL,
-                            loss REAL,
-                            val_accuracy REAL,
-                            val_loss REAL,
-                            metadata TEXT
-                        )
-                    """
-                }
-            },
             "endpoints": [
 
                 {
