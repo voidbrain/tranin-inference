@@ -60,7 +60,7 @@ venv.bak/
 # Frontend specific
 frontend/.angular/
 frontend/node_modules/
-frontend/traninging/node_modules/
+frontend/training/node_modules/
 frontend/*/node_modules/
 frontend/*/.angular/
 frontend/.angular/*.*

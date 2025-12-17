@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "traninging": {
+    "training": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:component": {
@@ -61,10 +61,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "traninging:build:production"
+              "buildTarget": "training:build:production"
             },
             "development": {
-              "buildTarget": "traninging:build:development"
+              "buildTarget": "training:build:development"
             }
           },
           "defaultConfiguration": "development"

@@ -1,3 +1,42 @@
+// Connection status indicator
+.connection-status {
+  margin-bottom: 20px;
+  text-align: center;
+
+  .connection-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background-color: #f8f9fa;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+
+    .led {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+
+      &.connected {
+        background-color: #28a745;
+        box-shadow: 0 0 6px rgba(40, 167, 69, 0.6);
+      }
+
+      &.connecting {
+        background-color: #ffc107;
+        box-shadow: 0 0 6px rgba(255, 193, 7, 0.6);
+      }
+
+      &.disconnected {
+        background-color: #dc3545;
+        box-shadow: 0 0 6px rgba(220, 53, 69, 0.6);
+      }
+    }
+  }
+}
+
 .see-container {
   max-width: 800px;
   margin: 0 auto;

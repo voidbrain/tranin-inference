@@ -40,7 +40,7 @@ frontend-shell: ## Open shell in frontend container (prod)
 	docker-compose exec frontend sh
 
 install-local: ## Install dependencies locally (without Docker)
-	cd frontend/traninging && npm install
+	cd frontend/training && npm install
 	cd ../..
 	cd backend && pip install -r requirements.txt
 
@@ -48,6 +48,6 @@ run-local: ## Run both services locally (requires local setup)
 	@echo "Starting backend..."
 	@cd backend && python main.py &
 	@echo "Starting frontend..."
-	@cd frontend/traninging && npm start &
+	@cd frontend/training && npm start &
 	@echo "Both services started. Press Ctrl+C to stop."
 	@trap "echo 'Stopping services...'; pkill -f 'python main.py'; pkill -f 'ng serve'; exit" INT TERM; wait

@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { HttpClientModule } from '@angular/common/http';
+import { WebWorkerService, PollingMessage } from '../shared/web-worker.service';
+import { WebSocketService, WebSocketMessage } from '../shared/websocket.service';
 
 @Component({
   selector: 'app-listen',
@@ -81,12 +83,38 @@ export class Listen implements OnInit, OnDestroy {
   private recordingStartTime: number = 0;
   private stream: MediaStream | null = null;
 
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  // Web worker polling subscriptions
+  private pollingSubscriptions: any[] = [];
+
+  // WebSocket connection
+  private webSocketSubscription: any = null;
+
+  // Connection status
+  backendConnected = false;
+  private connectionStatusSubscription: any = null;
+
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private webWorkerService: WebWorkerService, private webSocketService: WebSocketService) {}
+
+  // Public getters for template access
+  getWebSocketService(): WebSocketService {
+    return this.webSocketService;
+  }
 
   ngOnInit() {
     this.updateTrainingDataCount();
     // Load initial language model (multilingual by default)
     this.loadLanguageModel(this.selectedLanguage);
+
+    // Start backend readiness checking
+    this.webSocketService.startBackendReadyCheck();
+
+    // Subscribe to WebSocket connection status
+    this.connectionStatusSubscription = this.webSocketService.getConnectionStatus('speech-training').subscribe(
+      (connected: boolean) => {
+        this.backendConnected = connected;
+        this.cdr.detectChanges();
+      }
+    );
   }
 
   ngOnDestroy() {
@@ -95,6 +123,28 @@ export class Listen implements OnInit, OnDestroy {
 
     // Stop training status polling
     this.stopTrainingStatusPolling();
+
+    // Clean up polling subscriptions
+    this.pollingSubscriptions.forEach(sub => sub.unsubscribe());
+    this.pollingSubscriptions = [];
+
+    // Clean up WebSocket subscription
+    if (this.webSocketSubscription) {
+      this.webSocketSubscription.unsubscribe();
+      this.webSocketSubscription = null;
+    }
+
+    // Clean up connection status subscription
+    if (this.connectionStatusSubscription) {
+      this.connectionStatusSubscription.unsubscribe();
+      this.connectionStatusSubscription = null;
+    }
+
+    // Stop backend readiness checking
+    this.webSocketService.stopBackendReadyCheck();
+
+    // Disconnect WebSocket
+    this.webSocketService.disconnect('speech-training');
 
     // Clean up audio URL
     if (this.audioUrl) {
@@ -466,41 +516,38 @@ export class Listen implements OnInit, OnDestroy {
   }
 
   private startTrainingStatusPolling() {
-    // Poll every 2 seconds for training status updates
-    this.trainingIntervalId = setInterval(async () => {
-      try {
-        const response = await this.http.get(`${this.backendUrl}/speech/whisper-training-status-details`).toPromise();
-        const status: any = response;
+    // Connect to WebSocket for real-time training updates
+    this.webSocketSubscription = this.webSocketService.connect(
+      'speech-training',
+      '/ws/speech/training'
+    ).subscribe((message: WebSocketMessage) => {
+      if (message.type === 'training_update') {
+        // Update training progress in real-time
+        this.status = `Training: ${message.message || 'Processing...'}`;
 
-        this.trainingStatus = status.status;
-        this.trainingProgress = status.progress;
-        this.trainingMessage = status.message;
-        this.trainingLogs = status.logs;
+        // Update logs if available (for backward compatibility, also load from HTTP endpoint)
+        this.updateTrainingDataCount();
 
-        // Stop polling when training completes (success or error)
-        if (status.status === 'success' || status.status === 'error') {
+        // Check for completion
+        if (message.status === 'success') {
           this.stopTrainingStatusPolling();
-
-          if (status.status === 'success') {
-            this.showMessage('Whisper LoRA training completed successfully!', 'success');
-          } else {
-            this.showMessage(`Whisper LoRA training failed: ${status.message}`, 'error');
-          }
-
-          // Update training data count after completion
+          this.showMessage('Whisper LoRA training completed successfully!', 'success');
+          this.updateTrainingDataCount();
+        } else if (message.status === 'error') {
+          this.stopTrainingStatusPolling();
+          this.showMessage(`Whisper LoRA training failed: ${message.message || 'Unknown error'}`, 'error');
           this.updateTrainingDataCount();
         }
-      } catch (error) {
-        console.error('Failed to poll training status:', error);
       }
-    }, 2000);
+    });
   }
 
   private stopTrainingStatusPolling() {
-    if (this.trainingIntervalId) {
-      clearInterval(this.trainingIntervalId);
-      this.trainingIntervalId = null;
+    if (this.webSocketSubscription) {
+      this.webSocketSubscription.unsubscribe();
+      this.webSocketSubscription = null;
     }
+    this.webSocketService.disconnect('speech-training');
   }
 
   async resetTrainingData(language: string = this.selectedLanguage) {

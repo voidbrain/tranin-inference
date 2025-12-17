@@ -18,7 +18,7 @@ RUN npm run build
 FROM nginx:alpine
 
 # Copy built application
-COPY --from=build /app/dist/traninging/browser /usr/share/nginx/html
+COPY --from=build /app/dist/training/browser /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf

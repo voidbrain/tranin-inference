@@ -64,7 +64,7 @@ make clean         # Clean up containers and volumes
 
 **Frontend Setup:**
 ```bash
-cd frontend/traninging
+cd frontend/training
 npm install
 ```
 
@@ -101,7 +101,7 @@ Backend runs on http://localhost:8000
 
 **Frontend:**
 ```bash
-cd frontend/traninging
+cd frontend/training
 npm start
 ```
 Frontend runs on http://localhost:4223

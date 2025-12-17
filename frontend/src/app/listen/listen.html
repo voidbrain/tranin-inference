@@ -1,6 +1,16 @@
 <div class="listen-container">
   <h2>🎤 Speech Recognition Studio</h2>
 
+  <!-- Backend Connection Status -->
+  <div class="connection-status">
+    <span class="connection-indicator">
+      <span class="led" [class]="getWebSocketService().getEnhancedConnectionStatusString('speech-training')"></span>
+      Backend: {{ getWebSocketService().getEnhancedConnectionStatusString('speech-training') === 'connected' ? 'Connected' :
+                  getWebSocketService().getEnhancedConnectionStatusString('speech-training') === 'connecting' ? 'Connecting...' :
+                  'Disconnected' }}
+    </span>
+  </div>
+
   <!-- Language Selection -->
   <div class="language-selection">
     <h3>🌐 Language Selection:</h3>

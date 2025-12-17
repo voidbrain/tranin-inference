@@ -2,10 +2,14 @@
 AI Training Backend - Minimal Main Application
 Loads and initializes services directly
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
+from typing import Dict, List, Optional, Any
+import json
+import asyncio
+import datetime
 
 import os
 
@@ -24,6 +28,10 @@ os.environ['DISPLAY'] = ':0'
 # Direct service imports
 from speech.speech_service import SpeechService
 from vision.vision_service import VisionService
+
+# Import training status services
+from speech.speech_training_status_service import speech_training_status_service
+from vision.vision_training_status_service import vision_training_status_service
 
 # ===== SERVICE CONFIGURATION =====
 def get_service_configurations():
@@ -202,7 +210,7 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
             endpoint_function = post_request_only_endpoint
 
-        elif params == ["training_data: dict", "background_tasks: BackgroundTasks"]:
+        elif params == ["training_data: dict", "background_tasks"] or params == ["training_data: dict", "background_tasks: BackgroundTasks"]:
             # Special case: training data dict + background tasks dependency injection
             from fastapi import BackgroundTasks
 
@@ -725,11 +733,125 @@ def register_single_endpoint(app, endpoint_config, service_instance, service_nam
 
 register_endpoints(app, services, SERVICE_CONFIGS)
 
+# ===== WEBSOCKET CONNECTION MANAGER =====
+class WebSocketConnectionManager:
+    """Manages WebSocket connections for real-time training status updates"""
+
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {
+            "vision": [],
+            "speech": []
+        }
+
+    async def connect(self, websocket: WebSocket, service: str):
+        """Connect a new WebSocket client"""
+        await websocket.accept()
+        if service not in self.active_connections:
+            self.active_connections[service] = []
+        self.active_connections[service].append(websocket)
+        print(f"✅ WebSocket client connected to {service} service")
+
+    def disconnect(self, websocket: WebSocket, service: str):
+        """Disconnect a WebSocket client"""
+        if service in self.active_connections:
+            self.active_connections[service].remove(websocket)
+            print(f"❌ WebSocket client disconnected from {service} service")
+
+    async def broadcast(self, service: str, message: Dict[str, Any]):
+        """Broadcast message to all connected clients for a service"""
+        if service not in self.active_connections:
+            return
+
+        disconnected_clients = []
+        message_json = json.dumps(message)
+
+        for websocket in self.active_connections[service]:
+            try:
+                await websocket.send_text(message_json)
+            except Exception as e:
+                print(f"Failed to send message to {service} client: {e}")
+                disconnected_clients.append(websocket)
+
+        # Clean up disconnected clients
+        for client in disconnected_clients:
+            self.disconnect(client, service)
+
+# Global WebSocket manager instance
+ws_manager = WebSocketConnectionManager()
+
+# ===== WEBSOCKET ENDPOINTS =====
+@app.websocket("/ws/vision/training")
+async def vision_training_websocket(websocket: WebSocket):
+    """WebSocket endpoint for real-time vision training status"""
+    await ws_manager.connect(websocket, "vision")
+
+    try:
+        while True:
+            # Keep connection alive and listen for client messages
+            data = await websocket.receive_text()
+            # For now, we just echo back (could be used for commands later)
+            await websocket.send_text(f"Echo: {data}")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, "vision")
+    except Exception as e:
+        print(f"Vision WebSocket error: {e}")
+        ws_manager.disconnect(websocket, "vision")
+
+@app.websocket("/ws/speech/training")
+async def speech_training_websocket(websocket: WebSocket):
+    """WebSocket endpoint for real-time speech training status"""
+    await ws_manager.connect(websocket, "speech")
+
+    try:
+        while True:
+            # Keep connection alive and listen for client messages
+            data = await websocket.receive_text()
+            # For now, we just echo back (could be used for commands later)
+            await websocket.send_text(f"Echo: {data}")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, "speech")
+    except Exception as e:
+        print(f"Speech WebSocket error: {e}")
+        ws_manager.disconnect(websocket, "speech")
+
+# ===== TRAINING STATUS BROADCAST FUNCTIONS =====
+async def broadcast_vision_training_update(session_id: str, data: Dict[str, Any]):
+    """Broadcast vision training update to all connected WebSocket clients"""
+    await ws_manager.broadcast("vision", {
+        "type": "training_update",
+        "session_id": session_id,
+        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        **data
+    })
+
+async def broadcast_speech_training_update(session_id: str, data: Dict[str, Any]):
+    """Broadcast speech training update to all connected WebSocket clients"""
+    await ws_manager.broadcast("speech", {
+        "type": "training_update",
+        "session_id": session_id,
+        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        **data
+    })
+
 # ===== GLOBAL ENDPOINTS =====
 @app.get("/health")
 async def health_check():
     """Global health check"""
     return {"status": "healthy", "services": list(services.keys())}
+
+@app.get("/websocket/status")
+async def websocket_status():
+    """Get WebSocket connection status for all services"""
+    return {
+        "vision": {
+            "connections": len(ws_manager.active_connections.get("vision", [])),
+            "status": "active" if ws_manager.active_connections.get("vision", []) else "inactive"
+        },
+        "speech": {
+            "connections": len(ws_manager.active_connections.get("speech", [])),
+            "status": "active" if ws_manager.active_connections.get("speech", []) else "inactive"
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,8 +1,10 @@
-import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, signal, computed } from '@angular/core';
+import { Component, ElementRef, ViewChild, AfterViewInit, OnDestroy, signal, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { HttpClientModule } from '@angular/common/http';
+import { WebWorkerService, PollingMessage } from '../shared/web-worker.service';
+import { WebSocketService, WebSocketMessage } from '../shared/websocket.service';
 
 interface Detection {
   label: string;
@@ -182,7 +184,22 @@ export class See implements AfterViewInit, OnDestroy {
     ? 'http://localhost:8000'
     : 'http://backend:8000';
 
-  constructor(private http: HttpClient) {}
+  // Web worker polling subscriptions
+  private pollingSubscriptions: any[] = [];
+
+  // WebSocket connection
+  private webSocketSubscription: any = null;
+
+  // Connection status
+  backendConnected = signal(false);
+  private connectionStatusSubscription: any = null;
+
+  constructor(private http: HttpClient, private webWorkerService: WebWorkerService, private webSocketService: WebSocketService) {}
+
+  // Public getters for template access
+  getWebSocketService(): WebSocketService {
+    return this.webSocketService;
+  }
 
   async ngAfterViewInit() {
     await this.loadYOLOModel();
@@ -195,12 +212,44 @@ export class See implements AfterViewInit, OnDestroy {
       };
     }
 
+    // Start backend readiness checking
+    this.webSocketService.startBackendReadyCheck();
+
+    // Subscribe to WebSocket connection status
+    this.connectionStatusSubscription = this.webSocketService.getConnectionStatus('vision-training').subscribe(
+      (connected: boolean) => {
+        this.backendConnected.set(connected);
+      }
+    );
+
     this.isComponentReady.set(true);
   }
 
   ngOnDestroy() {
     this.stopCamera();
     this.stopTrainingStatusPolling();
+
+    // Clean up all polling subscriptions
+    this.pollingSubscriptions.forEach(sub => sub.unsubscribe());
+    this.pollingSubscriptions = [];
+
+    // Clean up WebSocket subscription
+    if (this.webSocketSubscription) {
+      this.webSocketSubscription.unsubscribe();
+      this.webSocketSubscription = null;
+    }
+
+    // Clean up connection status subscription
+    if (this.connectionStatusSubscription) {
+      this.connectionStatusSubscription.unsubscribe();
+      this.connectionStatusSubscription = null;
+    }
+
+    // Stop backend readiness checking
+    this.webSocketService.stopBackendReadyCheck();
+
+    // Disconnect WebSocket
+    this.webSocketService.disconnect('vision-training');
   }
 
   private async loadYOLOModel() {
@@ -711,10 +760,13 @@ export class See implements AfterViewInit, OnDestroy {
   }
 
   private startSpecializedTrainingPolling(trainingType: 'digits' | 'colors') {
-    this.trainingStatusPollingInterval.set(setInterval(async () => {
-      try {
-        const response: any = await this.http.get(`${this.backendUrl}/vision/training-logs`).toPromise();
-        const logs = response.logs || [];
+    const pollingSubscription = this.webWorkerService.startPolling(
+      `vision-training-logs-${trainingType}`,
+      `${this.backendUrl}/vision/training-logs`,
+      3000
+    ).subscribe((message: PollingMessage) => {
+      if (message.type === 'data') {
+        const logs = message.data.logs || [];
         this.trainingLogs.set(logs);
 
         // Check if specialized training is completed
@@ -732,10 +784,12 @@ export class See implements AfterViewInit, OnDestroy {
           this.trainingError.set(`LoRA training for ${trainingType} failed: ${lastLog.metadata.error}`);
           this.trainingSuccess.set(null);
         }
-      } catch (error) {
-        console.error('Failed to poll specialized training logs:', error);
+      } else if (message.type === 'error') {
+        console.error('Failed to poll specialized training logs:', message.error);
       }
-    }, 3000));
+    });
+
+    this.pollingSubscriptions.push(pollingSubscription);
   }
 
   private getCurrentFrameData(): string {
@@ -1069,46 +1123,48 @@ export class See implements AfterViewInit, OnDestroy {
     return item.id || index;
   }
 
-  // ===== REAL-TIME TRAINING STATUS POLLING (Added) =====
+  // ===== REAL-TIME TRAINING STATUS (WebSocket) =====
 
   private startTrainingStatusPolling() {
-    // Poll every 3 seconds for training status updates
-    this.trainingStatusPollingInterval.set(setInterval(async () => {
-      try {
-        const response: any = await this.http.get(`${this.backendUrl}/vision/training-logs`).toPromise();
-        const logs = response.logs || [];
-        this.trainingLogs.set(logs);
+    // Connect to WebSocket for real-time training updates
+    this.webSocketSubscription = this.webSocketService.connect(
+      'vision-training',
+      '/ws/vision/training'
+    ).subscribe((message: WebSocketMessage) => {
+      if (message.type === 'training_update') {
+        // Update training progress in real-time
+        this.status.set(`Training: ${message.message || 'Processing...'}`);
 
-        // Check if training is completed by looking for completion message
-        const lastLog = logs[logs.length - 1];
-        if (lastLog && lastLog.metadata && lastLog.metadata.type === 'training_completed') {
-          this.stopTrainingStatusPolling();
+        // Update logs if available (for backward compatibility, also load from HTTP endpoint)
+        this.loadTrainingLogs();
 
-          // Check if there's a trained_*.pt file (indicating success)
-          await this.loadTrainingStatus();
-          const currentModelStatus = this.trainingStatus();
-          if (currentModelStatus?.current_model && currentModelStatus.current_model !== "YOLOv8n (Base)") {
-            this.trainingSuccess.set("YOLO training completed successfully!");
-            this.trainingError.set(null);
-          } else {
-            this.trainingSuccess.set("YOLO training completed - check model status");
-            this.trainingError.set(null);
-          }
-        } else if (lastLog && lastLog.metadata && lastLog.metadata.type === 'training_error') {
+        // Check for completion
+        if (message.status === 'success') {
           this.stopTrainingStatusPolling();
-          this.trainingError.set(`YOLO training failed: ${lastLog.metadata.error}`);
+          this.loadTrainingStatus().then(() => {
+            const currentModelStatus = this.trainingStatus();
+            if (currentModelStatus?.current_model && currentModelStatus.current_model !== "YOLOv8n (Base)") {
+              this.trainingSuccess.set("YOLO training completed successfully!");
+              this.trainingError.set(null);
+            } else {
+              this.trainingSuccess.set("YOLO training completed - check model status");
+              this.trainingError.set(null);
+            }
+          });
+        } else if (message.status === 'error') {
+          this.stopTrainingStatusPolling();
+          this.trainingError.set(`YOLO training failed: ${message.message || 'Unknown error'}`);
           this.trainingSuccess.set(null);
         }
-      } catch (error) {
-        console.error('Failed to poll training logs:', error);
       }
-    }, 3000));
+    });
   }
 
   private stopTrainingStatusPolling() {
-    if (this.trainingStatusPollingInterval()) {
-      clearInterval(this.trainingStatusPollingInterval());
-      this.trainingStatusPollingInterval.set(null);
+    if (this.webSocketSubscription) {
+      this.webSocketSubscription.unsubscribe();
+      this.webSocketSubscription = null;
     }
+    this.webSocketService.disconnect('vision-training');
   }
 }
