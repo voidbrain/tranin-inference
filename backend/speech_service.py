@@ -376,8 +376,12 @@ class SpeechService:
                 self._add_training_log("Setting up training environment...")
                 from transformers import TrainingArguments, Trainer
 
+                # Create temp directory for training checkpoints
+                temp_dir = self.models_dir / "temp" / language
+                temp_dir.mkdir(exist_ok=True, parents=True)
+
                 training_args = TrainingArguments(
-                    output_dir=str(self.models_dir / f"temp_training_{language}"),
+                    output_dir=str(temp_dir),
                     num_train_epochs=epochs,
                     per_device_train_batch_size=1,
                     gradient_accumulation_steps=4,
@@ -407,44 +411,22 @@ class SpeechService:
                 # 7. Train the model
                 trainer.train()
 
-                # 8. Save the fine-tuned model to merged directory
+                # 8. Save the LoRA adapters to loras directory for merging later
                 self.training_progress = 90.0
-                self.training_message = "Saving fine-tuned model..."
-                self._add_training_log("Saving fine-tuned model")
+                self.training_message = "Saving LoRA adapters..."
+                self._add_training_log("Saving LoRA adapters")
 
-                # Save to merged directory with proper naming
-                merged_model_path = self.merged_dir / f"speech_{language}.pt"
-                trainer.save_model(str(merged_model_path))
-
-                # Save LoRA adapters separately (optional)
+                # Save LoRA adapters in the loras directory (following existing structure)
                 lora_dir = self.models_dir / "loras" / language
                 lora_dir.mkdir(exist_ok=True, parents=True)
+
+                # Save the PEFT model (LoRA adapters)
                 model.save_pretrained(str(lora_dir))
+                self._add_training_log(f"LoRA adapters saved to: {lora_dir}")
 
-                # 9. Create ONNX export
-                self.training_progress = 95.0
-                self.training_message = "Creating ONNX export..."
-                self._add_training_log("Creating ONNX export...")
-
-                try:
-                    from transformers.onnx import export
-                    import torch
-
-                    # Create dummy input for ONNX export
-                    dummy_input = torch.randn(1, 80, 3000)  # Typical Whisper input shape
-
-                    # Export to ONNX
-                    onnx_path = self.merged_dir / f"speech_{language}.onnx"
-                    export(
-                        preprocessor=processor,
-                        model=model,
-                        config=self.merged_dir / f"speech_{language}_config.json",
-                        opset=13,
-                        output=onnx_path
-                    )
-                    self._add_training_log("ONNX export completed")
-                except Exception as e:
-                    self._add_training_log(f"ONNX export failed: {str(e)}")
+                # Note: Merged models will be created later using speech_merge_lora.py script
+                # This follows the existing workflow where individual LoRA adapters are saved first,
+                # then merged using the dedicated script.
 
                 # 10. Clean up old LoRA models to save disk space
                 self._cleanup_old_lora_models(f"speech_{language}")

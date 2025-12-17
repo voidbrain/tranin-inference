@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p data models train_logs
 
 # Create a script to ensure directories exist with correct permissions
-RUN echo '#!/bin/bash\nmkdir -p /tmp/librosa_cache /tmp/.cache /tmp/huggingface_cache /tmp/xdg_cache /tmp/numba_cache /app/data/speech/waiting/en /app/data/speech/waiting/it /app/data/speech/processed/en /app/data/speech/processed/it /app/data/vision/colors/waiting /app/data/vision/colors/processed /app/data/vision/digits/waiting /app/data/vision/digits/processed /app/models /app/train_logs && chmod 755 /tmp/.cache /tmp/huggingface_cache /tmp/xdg_cache && echo "Directories created successfully"' > /app/create_dirs.sh && chmod +x /app/create_dirs.sh
+RUN echo '#!/bin/bash\nmkdir -p /tmp/librosa_cache /tmp/.cache /tmp/huggingface_cache /tmp/xdg_cache /tmp/numba_cache /app/data/speech/waiting/en /app/data/speech/waiting/it /app/data/speech/processed/en /app/data/speech/processed/it /app/data/vision/colors/waiting /app/data/vision/colors/processed /app/data/vision/digits/waiting /app/data/vision/digits/processed /app/models/speech/temp/en /app/models/speech/temp/it /app/models /app/train_logs && chmod 755 /tmp/.cache /tmp/huggingface_cache /tmp/xdg_cache && echo "Directories created successfully"' > /app/create_dirs.sh && chmod +x /app/create_dirs.sh
 
 # Copy application code
 COPY . .
