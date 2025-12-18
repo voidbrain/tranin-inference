@@ -37,9 +37,12 @@ export class WebSocketService {
     this.subjects.set(endpointId, subject);
     this.connectionStatus.set(endpointId, connectionStatus);
 
-    // Create WebSocket connection
+    // Create WebSocket connection - use backend URL instead of frontend host
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}${url}`;
+    const backendHost = window.location.hostname === 'localhost'
+      ? 'localhost:8000'
+      : 'backend:8000';
+    const wsUrl = `${protocol}//${backendHost}${url}`;
 
     const socket = new WebSocket(wsUrl);
 

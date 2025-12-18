@@ -1,5 +1,5 @@
 fastapi==0.115.0
-uvicorn==0.32.0
+uvicorn[standard]==0.32.0
 python-multipart==0.0.9
 ultralytics==8.3.49
 opencv-python-headless==4.10.0.84
