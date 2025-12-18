@@ -192,6 +192,7 @@ export class See implements AfterViewInit, OnDestroy {
 
   // Connection status
   backendConnected = signal(false);
+  backendConnectionState = signal<'disconnected' | 'connecting' | 'connected'>('disconnected');
   private connectionStatusSubscription: any = null;
   private backendReadySubscription: any = null;
 
@@ -227,6 +228,7 @@ export class See implements AfterViewInit, OnDestroy {
     this.backendReadySubscription = this.webSocketService.getBackendState().subscribe(
       (state: 'disconnected' | 'connecting' | 'connected') => {
         console.log('Backend state changed:', state);
+        this.backendConnectionState.set(state);
         // Force Angular change detection to update the LED status
         // This will trigger the enhanced connection status string to be recalculated
       }
