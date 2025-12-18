@@ -85,7 +85,7 @@ async def broadcast_vision_training_update(session_id: str, data: Dict[str, Any]
     await ws_manager.broadcast("vision", {
         "type": "training_update",
         "session_id": session_id,
-        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        "timestamp": data.get("timestamp", datetime.datetime.now().isoformat()),
         **data
     })
 
@@ -94,7 +94,7 @@ async def broadcast_speech_training_update(session_id: str, data: Dict[str, Any]
     await ws_manager.broadcast("speech", {
         "type": "training_update",
         "session_id": session_id,
-        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        "timestamp": data.get("timestamp", datetime.datetime.now().isoformat()),
         **data
     })
 

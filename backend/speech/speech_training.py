@@ -5,10 +5,19 @@ Handles LoRA fine-tuning and training operations
 import datetime
 import shutil
 from pathlib import Path
+import pandas as pd
+
+# Transformers imports
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
 # Lazy imports - loaded on first use to avoid import errors during configuration
 _whisper = None
 _librosa = None
+
+# PEFT imports for LoRA functionality
+_LoraConfig = None
+_peft_model_func = None
+_prepare_model_for_kbit_training = None
 
 def _import_ml_libraries():
     """Lazy import of ML libraries"""
@@ -39,6 +48,27 @@ def _get_whisper():
 def _get_librosa():
     _import_ml_libraries()
     return _librosa
+
+def _import_peft_libraries():
+    """Lazy import of PEFT libraries"""
+    global _LoraConfig, _peft_model_func, _prepare_model_for_kbit_training
+    if _LoraConfig is None:
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        _LoraConfig = LoraConfig
+        _peft_model_func = get_peft_model
+        _prepare_model_for_kbit_training = prepare_model_for_kbit_training
+
+def _get_LoraConfig():
+    _import_peft_libraries()
+    return _LoraConfig
+
+def _get_peft_model():
+    _import_peft_libraries()
+    return _peft_model_func
+
+def _get_prepare_model_for_kbit_training():
+    _import_peft_libraries()
+    return _prepare_model_for_kbit_training
 
 
 class SpeechTrainingMixin:
@@ -73,6 +103,10 @@ class SpeechTrainingMixin:
             except ImportError:
                 pass  # WebSocket not available
 
+            # 1. Move data from processed to train for training
+            self._add_training_log("Preparing training data...")
+            self._move_from_processed_to_train(language)
+
             # Check for training data first - look in language subdirectory
             lang_dir = self.train_dir / language
             training_files = list(lang_dir.glob(f"speech_*_{language}_training.txt"))
@@ -98,10 +132,6 @@ class SpeechTrainingMixin:
                 })
             except ImportError:
                 pass
-
-            # 1. Move data from processed to train for training
-            self._add_training_log("Preparing training data...")
-            self._move_from_processed_to_train(language)
 
             # 2. Prepare dataset from stored training data
             self.training_progress = 10.0
@@ -149,6 +179,7 @@ class SpeechTrainingMixin:
             # 2. Configure LoRA
             self.training_message = "Configuring LoRA adapters..."
             self._add_training_log("Configuring LoRA adapters...")
+            LoraConfig = _get_LoraConfig()
             lora_config = LoraConfig(
                 r=32,  # rank dimension
                 lora_alpha=64,  # scaling parameter
@@ -167,7 +198,7 @@ class SpeechTrainingMixin:
             from transformers import WhisperForConditionalGeneration
 
             model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-tiny")
-            model = get_peft_model(model, lora_config)
+            model = _get_peft_model()(model, lora_config)
 
             # 4. Data preprocessing
             self.training_progress = 30.0
@@ -281,6 +312,18 @@ class SpeechTrainingMixin:
             self.training_progress = 100.0
             self.training_message = "Real training completed successfully!"
             self._add_training_log("Real training completed successfully!")
+
+            # Broadcast success
+            try:
+                from main import broadcast_speech_training_update
+                await broadcast_speech_training_update(session_id, {
+                    'progress': 100.0,
+                    'message': 'Real training completed successfully!',
+                    'status': 'success',
+                    'type': 'training_update'
+                })
+            except ImportError:
+                pass
 
             # Save LoRA adapter path for return
             lora_model_path = self.models_dir / "loras" / language
@@ -401,9 +444,11 @@ class SpeechTrainingMixin:
                 print("✓ Downloaded Whisper base model from HuggingFace")
 
             # Prepare model for LoRA
-            model = prepare_model_for_kbit_training(model)
+            prepare_model_for_kbit_training_func = _get_prepare_model_for_kbit_training()
+            model = prepare_model_for_kbit_training_func(model)
 
             # Configure LoRA
+            LoraConfig = _get_LoraConfig()
             lora_config = LoraConfig(
                 r=32,  # rank dimension
                 lora_alpha=64,  # scaling parameter
@@ -414,7 +459,8 @@ class SpeechTrainingMixin:
             )
 
             # Apply LoRA to model
-            model = get_peft_model(model, lora_config)
+            get_peft_model_func = _get_peft_model()
+            model = get_peft_model_func(model, lora_config)
             model.print_trainable_parameters()
 
             # Load training data
