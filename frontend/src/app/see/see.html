@@ -88,6 +88,17 @@
     <div class="camera-section">
       <button (click)="startCamera()" [disabled]="!isComponentReady() || isCameraActive()">Start Camera</button>
       <button (click)="stopCamera()" [disabled]="!isCameraActive()">Stop Camera</button>
+
+      <!-- Alternative: Image Upload -->
+      <div class="upload-section">
+        <label for="imageUpload" class="upload-btn">📁 Upload Image</label>
+        <input type="file"
+               id="imageUpload"
+               accept="image/*"
+               (change)="onImageUpload($event)"
+               style="display: none;">
+        <span class="upload-info">Or upload an image file</span>
+      </div>
     </div>
 
     <div class="live-view">
@@ -123,7 +134,7 @@
     </div>
 
     <div class="detection-controls">
-      <button (click)="detectObjects()" [disabled]="!isCameraActive() || isDetecting()">Detect Objects</button>
+      <button (click)="detectObjects()" [disabled]="(!isCameraActive() && !showStaticImage()) || isDetecting()">Detect Objects</button>
     </div>
 
     <div class="detections">

@@ -38,8 +38,8 @@ export class See implements AfterViewInit, OnDestroy {
   addBoxMode = signal(false);
   newBoxLabel = signal('');
   status = signal('Ready');
-  canvasWidth = signal(640);
-  canvasHeight = signal(480);
+  canvasWidth = signal(480);
+  canvasHeight = signal(640);
 
   detections = signal<Detection[]>([]);
 
@@ -388,6 +388,54 @@ export class See implements AfterViewInit, OnDestroy {
     this.status.set('Camera stopped');
   }
 
+  // Handle image upload
+  onImageUpload(event: any) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      this.status.set('Error: Please select a valid image file');
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      this.status.set('Error: Image file is too large (max 10MB)');
+      return;
+    }
+
+    this.status.set('Loading uploaded image...');
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const imageData = e.target?.result as string;
+      this.capturedImage.set(imageData);
+      this.showStaticImage.set(true);
+      this.isCameraActive.set(false); // Disable camera mode when using uploaded image
+
+      // Clear any existing detections
+      this.detections.set([]);
+      this.clearCanvas();
+
+      this.status.set('Image uploaded successfully. Ready for detection.');
+
+      // Draw blue box on the uploaded image
+      if (this.staticImageElement) {
+        this.staticImageElement.nativeElement.onload = () => {
+          this.drawBlueBox();
+        };
+      }
+    };
+
+    reader.onerror = () => {
+      this.status.set('Error: Failed to read the image file');
+    };
+
+    reader.readAsDataURL(file);
+  }
+
   // just stop the camera stream but keep the UI in static image mode
   private stopCameraStream() {
     if (this.stream) {
@@ -454,8 +502,8 @@ export class See implements AfterViewInit, OnDestroy {
 
       // Add blue box coordinates for digit prioritization
       const blueBoxCoords = {
-        x: 220,  // Center of 640px canvas minus half of 200px box
-        y: 140,  // Center of 480px canvas minus half of 200px box
+        x: 140,  // Center of 480px canvas minus half of 200px box
+        y: 220,  // Center of 640px canvas minus half of 200px box
         width: 200,
         height: 200
       };
@@ -577,11 +625,11 @@ export class See implements AfterViewInit, OnDestroy {
     // Clear the blue box canvas first
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Calculate center position for 200x200 box on 640x480 canvas
+    // Calculate center position for 200x200 box on 480x640 canvas
     const boxWidth = 200;
     const boxHeight = 200;
-    const centerX = (canvas.width - boxWidth) / 2;  // (640 - 200) / 2 = 220
-    const centerY = (canvas.height - boxHeight) / 2; // (480 - 200) / 2 = 140
+    const centerX = (canvas.width - boxWidth) / 2;  // (480 - 200) / 2 = 140
+    const centerY = (canvas.height - boxHeight) / 2; // (640 - 200) / 2 = 220
 
     // Draw blue rectangle
     ctx.strokeStyle = '#0000FF'; // Blue color

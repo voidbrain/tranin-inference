@@ -1,0 +1,55 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - navigation [ref=e3]:
+    - link "🎤 Listen" [ref=e4] [cursor=pointer]:
+      - /url: /listen
+    - text: "|"
+    - link "👁️ See" [ref=e5] [cursor=pointer]:
+      - /url: /see
+  - generic [ref=e7]:
+    - heading "👁️ Vision AI Studio (YOLO)" [level=2] [ref=e8]
+    - generic [ref=e10]: "Backend: Connected"
+    - generic [ref=e12]:
+      - button "🎯 Detect" [ref=e13]
+      - button "🚀 Train" [ref=e14]
+      - button "📊 Logs" [ref=e15]
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - heading "Model Selection:" [level=3] [ref=e18]
+        - generic [ref=e19]:
+          - button "🤖 Base Model (base)" [ref=e20]
+          - button "🎨 Colors LoRA (base + color)" [ref=e21]
+          - button "🔢 Digits LoRA (base + digit)" [ref=e22]
+          - button "🔀 Merged (base + color + digit)" [ref=e23]
+        - generic [ref=e24]:
+          - strong [ref=e25]: "Active:"
+          - text: Digits LoRA (base + digit)
+      - generic [ref=e26]:
+        - heading "Detection Mode:" [level=3] [ref=e27]
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - radio "🔢 Digits" [checked] [ref=e30]
+            - text: 🔢 Digits
+          - generic [ref=e31]:
+            - radio "🎨 Colors (dashed boxes)" [ref=e32]
+            - text: 🎨 Colors (dashed boxes)
+      - generic [ref=e33]:
+        - button "Start Camera" [ref=e34] [cursor=pointer]
+        - button "Stop Camera" [disabled] [ref=e35]
+        - generic [ref=e36]:
+          - generic [ref=e37] [cursor=pointer]: 📁 Upload Image
+          - generic [ref=e38]: Or upload an image file
+      - img "Captured frame" [ref=e40]
+      - button "Detect Objects" [ref=e42] [cursor=pointer]
+      - generic [ref=e43]:
+        - heading "Detections:" [level=3] [ref=e44]
+        - generic [ref=e45]: No detections
+      - generic [ref=e46]:
+        - text: "Status: Detection failed: HTTP 500: Internal Server Error"
+        - generic [ref=e47]:
+          - text: "Camera: ✗ | Detecting: ✗ | Loading: ✗ | Detections: 0 |"
+          - text: "Static Image: ✓ | Image Data: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAC9AA..."
+          - text: "Current Labels: none"
+```

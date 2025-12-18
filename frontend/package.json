@@ -6,7 +6,12 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "test:codegen": "playwright codegen http://localhost:4223",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:vision": "playwright test vision_test_inference.spec.ts",
+    "test:speech": "playwright test speech_test_inference.spec.ts"
   },
   "prettier": {
     "printWidth": 100,
@@ -37,6 +42,8 @@
     "@angular/build": "^21.0.0",
     "@angular/cli": "^21.0.0",
     "@angular/compiler-cli": "^21.0.0",
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^25.0.3",
     "jsdom": "^27.1.0",
     "typescript": "~5.9.2",
     "vitest": "^4.0.8"
