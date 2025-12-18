@@ -19,6 +19,19 @@ def _import_ml_libraries():
         _whisper = whisper
         _librosa = librosa
 
+def _check_training_libraries_available():
+    """Check if training libraries are available and compatible"""
+    try:
+        # Test the problematic imports that cause circular import issues
+        from peft import LoraConfig, get_peft_model
+        from transformers import WhisperProcessor, WhisperForConditionalGeneration
+        from torch.utils.data import Dataset, DataLoader
+        import torch
+        return True
+    except Exception as e:
+        print(f"Training libraries not available or incompatible: {e}")
+        return False
+
 def _get_whisper():
     _import_ml_libraries()
     return _whisper
@@ -53,20 +66,13 @@ class SpeechTrainingMixin:
             self._add_training_log(f"Found {len(training_files)} training samples")
 
             # Check if required ML libraries are available for real training
-            try:
-                # Try to import required libraries
-                from transformers import WhisperProcessor
-                from datasets import Dataset, Audio
-                from peft import LoraConfig, get_peft_model
-                import pandas as pd
-                libraries_available = True
-                missing_libraries = ""
+            libraries_available = _check_training_libraries_available()
+
+            if libraries_available:
                 self._add_training_log("Real ML libraries available - using actual training")
-            except ImportError as e:
-                libraries_available = False
-                missing_libraries = str(e)
-                self._add_training_log("Training libraries not available - using mock training")
-                self._add_training_log(f"Missing libraries: {missing_libraries}")
+            else:
+                self._add_training_log("Training libraries not available or incompatible - using mock training")
+                self._add_training_log("This is expected in development environments with version conflicts")
 
             if libraries_available:
                 # Real training implementation
@@ -102,6 +108,7 @@ class SpeechTrainingMixin:
 
                 self._add_training_log(f"Loaded {len(data)} complete audio-transcript pairs")
                 # Create HF dataset
+                from datasets import Dataset
                 dataset = Dataset.from_pandas(pd.DataFrame(data))
                 self.training_progress = 20.0
 

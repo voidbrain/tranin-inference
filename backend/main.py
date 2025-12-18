@@ -33,6 +33,84 @@ from vision.vision_service import VisionService
 from speech.speech_training_status_service import speech_training_status_service
 from vision.vision_training_status_service import vision_training_status_service
 
+# ===== WEBSOCKET CONNECTION MANAGER =====
+class WebSocketConnectionManager:
+    """Manages WebSocket connections for real-time training status updates"""
+
+    def __init__(self):
+        self.active_connections: Dict[str, List[WebSocket]] = {
+            "vision": [],
+            "speech": []
+        }
+
+    async def connect(self, websocket: WebSocket, service: str):
+        """Connect a new WebSocket client"""
+        await websocket.accept()
+        if service not in self.active_connections:
+            self.active_connections[service] = []
+        self.active_connections[service].append(websocket)
+        print(f"✅ WebSocket client connected to {service} service")
+
+    def disconnect(self, websocket: WebSocket, service: str):
+        """Disconnect a WebSocket client"""
+        if service in self.active_connections:
+            self.active_connections[service].remove(websocket)
+            print(f"❌ WebSocket client disconnected from {service} service")
+
+    async def broadcast(self, service: str, message: Dict[str, Any]):
+        """Broadcast message to all connected clients for a service"""
+        if service not in self.active_connections:
+            return
+
+        disconnected_clients = []
+        message_json = json.dumps(message)
+
+        for websocket in self.active_connections[service]:
+            try:
+                await websocket.send_text(message_json)
+            except Exception as e:
+                print(f"Failed to send message to {service} client: {e}")
+                disconnected_clients.append(websocket)
+
+        # Clean up disconnected clients
+        for client in disconnected_clients:
+            self.disconnect(client, service)
+
+# Global WebSocket manager instance
+ws_manager = WebSocketConnectionManager()
+
+# ===== TRAINING STATUS BROADCAST FUNCTIONS =====
+async def broadcast_vision_training_update(session_id: str, data: Dict[str, Any]):
+    """Broadcast vision training update to all connected WebSocket clients"""
+    await ws_manager.broadcast("vision", {
+        "type": "training_update",
+        "session_id": session_id,
+        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        **data
+    })
+
+async def broadcast_speech_training_update(session_id: str, data: Dict[str, Any]):
+    """Broadcast speech training update to all connected WebSocket clients"""
+    await ws_manager.broadcast("speech", {
+        "type": "training_update",
+        "session_id": session_id,
+        "timestamp": data.get("timestamp", datetime.now().isoformat()),
+        **data
+    })
+
+async def broadcast_backend_status_update(data: Dict[str, Any]):
+    """Broadcast backend initialization status updates to all connected clients"""
+    # Send to both vision and speech WebSocket connections
+    status_message = {
+        "type": "backend_status_update",
+        "timestamp": datetime.datetime.now().isoformat(),
+        **data
+    }
+
+    await ws_manager.broadcast("vision", status_message)
+    await ws_manager.broadcast("speech", status_message)
+    print(f"📡 Broadcasted backend status update: {data}")
+
 # ===== SERVICE CONFIGURATION =====
 def get_service_configurations():
     services = {}
@@ -797,51 +875,7 @@ async def shutdown_event():
     backend_initialization_state["ready"] = False
     print("❌ Backend server shutting down...")
 
-# ===== WEBSOCKET CONNECTION MANAGER =====
-class WebSocketConnectionManager:
-    """Manages WebSocket connections for real-time training status updates"""
 
-    def __init__(self):
-        self.active_connections: Dict[str, List[WebSocket]] = {
-            "vision": [],
-            "speech": []
-        }
-
-    async def connect(self, websocket: WebSocket, service: str):
-        """Connect a new WebSocket client"""
-        await websocket.accept()
-        if service not in self.active_connections:
-            self.active_connections[service] = []
-        self.active_connections[service].append(websocket)
-        print(f"✅ WebSocket client connected to {service} service")
-
-    def disconnect(self, websocket: WebSocket, service: str):
-        """Disconnect a WebSocket client"""
-        if service in self.active_connections:
-            self.active_connections[service].remove(websocket)
-            print(f"❌ WebSocket client disconnected from {service} service")
-
-    async def broadcast(self, service: str, message: Dict[str, Any]):
-        """Broadcast message to all connected clients for a service"""
-        if service not in self.active_connections:
-            return
-
-        disconnected_clients = []
-        message_json = json.dumps(message)
-
-        for websocket in self.active_connections[service]:
-            try:
-                await websocket.send_text(message_json)
-            except Exception as e:
-                print(f"Failed to send message to {service} client: {e}")
-                disconnected_clients.append(websocket)
-
-        # Clean up disconnected clients
-        for client in disconnected_clients:
-            self.disconnect(client, service)
-
-# Global WebSocket manager instance
-ws_manager = WebSocketConnectionManager()
 
 # ===== WEBSOCKET ENDPOINTS =====
 @app.websocket("/ws/vision/training")
@@ -878,37 +912,7 @@ async def speech_training_websocket(websocket: WebSocket):
         print(f"Speech WebSocket error: {e}")
         ws_manager.disconnect(websocket, "speech")
 
-# ===== TRAINING STATUS BROADCAST FUNCTIONS =====
-async def broadcast_vision_training_update(session_id: str, data: Dict[str, Any]):
-    """Broadcast vision training update to all connected WebSocket clients"""
-    await ws_manager.broadcast("vision", {
-        "type": "training_update",
-        "session_id": session_id,
-        "timestamp": data.get("timestamp", datetime.now().isoformat()),
-        **data
-    })
 
-async def broadcast_speech_training_update(session_id: str, data: Dict[str, Any]):
-    """Broadcast speech training update to all connected WebSocket clients"""
-    await ws_manager.broadcast("speech", {
-        "type": "training_update",
-        "session_id": session_id,
-        "timestamp": data.get("timestamp", datetime.now().isoformat()),
-        **data
-    })
-
-async def broadcast_backend_status_update(data: Dict[str, Any]):
-    """Broadcast backend initialization status updates to all connected clients"""
-    # Send to both vision and speech WebSocket connections
-    status_message = {
-        "type": "backend_status_update",
-        "timestamp": datetime.datetime.now().isoformat(),
-        **data
-    }
-
-    await ws_manager.broadcast("vision", status_message)
-    await ws_manager.broadcast("speech", status_message)
-    print(f"📡 Broadcasted backend status update: {data}")
 
 # ===== GLOBAL ENDPOINTS =====
 @app.get("/health")
