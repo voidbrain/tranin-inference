@@ -2,6 +2,7 @@
 Vision Endpoints Module
 FastAPI endpoint wrappers for vision service functionality
 """
+import json
 
 
 class VisionEndpointsMixin:
@@ -32,7 +33,7 @@ class VisionEndpointsMixin:
             try:
                 # blue_box_str should be a string containing JSON
                 if isinstance(blue_box_str, str):
-                    blue_box_coords = __import__('json').loads(blue_box_str)
+                    blue_box_coords = json.loads(blue_box_str)
                     print(f"🔵 BLUE BOX DEBUG: Successfully parsed coordinates: {blue_box_coords}")
                 else:
                     print(f"❌ BLUE BOX ERROR: Unexpected blue_box type: {type(blue_box_str)}, value: {repr(blue_box_str)}")
