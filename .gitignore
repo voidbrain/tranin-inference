@@ -135,3 +135,5 @@ backend/data/speech/
 backend/data/vision/
 backend/models/speech/temp/
 backend/models/vision/temp/
+frontend/test-results/
+frontend/playwright-report/
